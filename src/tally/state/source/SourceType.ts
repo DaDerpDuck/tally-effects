@@ -2,7 +2,8 @@ import type {
 	AnyReplicationDefinition,
 	ReplicationDefinition,
 } from "../../replication/ReplicationDefinition.js";
-import type { DuplicatePolicy } from "../DuplicatePolicy.js";
+import type { DuplicatePolicy } from "../duplication/DuplicatePolicy.js";
+import type { DuplicationGroup } from "../duplication/DuplicationGroup.js";
 import { registerNamed, type Registrable, type Registry } from "../Registrable.js";
 import type { StateTypeDefinition } from "../StateTypeDefinition.js";
 import type { Source } from "./Source.js";
@@ -22,7 +23,7 @@ export interface SourceTypeDefinition<TData> extends StateTypeDefinition<TData> 
 	 *
 	 * @see {@link DuplicatePolicy}
 	 */
-	readonly duplication?: DuplicatePolicy<Source<TData>, TData>;
+	readonly duplication?: DuplicatePolicy<Source<TData>, TData> | DuplicationGroup<TData>;
 	/**
 	 * Returns the modifiers for a given data that is passed to the Source.
 	 */
@@ -44,6 +45,7 @@ export interface AnySourceType {
 export class SourceType<TData> implements AnySourceType, Registrable {
 	public readonly name: string;
 	public readonly priority: number;
+	// TODO: Offload AgentState's duplication resolver into a separate class
 	public readonly duplication: DuplicatePolicy<Source<TData>, TData>;
 	public readonly replication?: ReplicationDefinition<TData> | undefined;
 

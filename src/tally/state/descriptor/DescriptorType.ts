@@ -1,8 +1,8 @@
 import type {
-	AnyReplicationDefinition,
-	ReplicationDefinition,
+    AnyReplicationDefinition,
+    ReplicationDefinition,
 } from "../../replication/ReplicationDefinition.js";
-import type { DuplicatePolicy } from "../DuplicatePolicy.js";
+import type { DuplicatePolicy } from "../duplication/DuplicatePolicy.js";
 import { registerNamed, type Registrable, type Registry } from "../Registrable.js";
 import type { SourceType } from "../source/SourceType.js";
 import type { StateTypeDefinition } from "../StateTypeDefinition.js";
