@@ -1,3 +1,5 @@
+import type { DuplicationGroup, DuplicationGroupMember } from "./DuplicationGroup.js";
+
 /**
  * Specifies the behavior when a state is added to an AgentState with an
  * existing same type.
@@ -18,4 +20,41 @@ export type DuplicatePolicy<TExisting, TData> =
 	| {
 			readonly policy: "reconcile";
 			reconcile(existing: TExisting, incoming: TData): void;
+	  }
+	| DuplicationGroupMember<TData>;
+
+export type ResolvedDuplicatePolicy<TExisting, TData> =
+	| { readonly kind: "allow" }
+	| { readonly kind: "ignore" }
+	| { readonly kind: "replace" }
+	| { readonly kind: "reconcile"; reconcile(existing: TExisting, incoming: TData): void }
+	| {
+			readonly kind: "group";
+			readonly group: DuplicationGroup;
+			rank(data: TData): number;
+			replaceIf(existingRank: number, incomingRank: number): boolean;
 	  };
+
+export function resolveDuplicatePolicy<TExisting, TData>(
+	policy: DuplicatePolicy<TExisting, TData>
+): ResolvedDuplicatePolicy<TExisting, TData> {
+	if ("policy" in policy) {
+		if (policy.policy === "reconcile") {
+			return {
+				kind: "reconcile",
+				reconcile: policy.reconcile,
+			};
+		} else {
+			return {
+				kind: policy.policy,
+			};
+		}
+	} else {
+		return {
+			kind: "group",
+			group: policy.group,
+			rank: policy.rank,
+			replaceIf: policy.replaceIf,
+		};
+	}
+}

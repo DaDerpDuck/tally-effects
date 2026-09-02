@@ -1,7 +1,4 @@
-const DuplicationGroupSymbol: unique symbol = Symbol("duplicationGroup");
-export function isDuplicationGroup(o: object): o is DuplicationGroup {
-	return DuplicationGroupSymbol in o;
-}
+export type DuplicationReplaceSelectors = "oldest" | "newest" | "lowest" | "highest";
 
 export type DuplicationGroupDefinition =
 	| {
@@ -17,35 +14,41 @@ export type DuplicationGroupDefinition =
 	| {
 			readonly policy: "replace";
 			readonly maxStack: number;
-			readonly selector: "oldest" | "newest" | "lowest" | "highest";
+			readonly selector: DuplicationReplaceSelectors;
 	  };
 
-export class DuplicationGroup<T = unknown> {
-	private readonly [DuplicationGroupSymbol] = true;
+interface DuplicationGroupOptions<T> {
+	rank(data: T): number;
+	replaceIf(existingRank: number, incomingRank: number): boolean;
+}
+
+export interface DuplicationGroupMember<T> {
+	readonly group: DuplicationGroup;
+	rank(data: T): number;
+	replaceIf(existingRank: number, incomingRank: number): boolean;
+}
+
+export class DuplicationGroup {
 	readonly policy: "ignore" | "replace";
 	readonly maxStack: number;
-	readonly selector: "lowest" | "highest";
+	readonly selector: DuplicationReplaceSelectors;
 
-	constructor(
-		private readonly definition: DuplicationGroupDefinition,
-		private ranker = (data: T, index: number) => index
-	) {
+	constructor(private readonly definition: DuplicationGroupDefinition) {
 		this.policy = definition.policy;
 		this.maxStack = definition.maxStack ?? 1;
-
-		if (!definition.selector) this.selector = "lowest";
-		else if (definition.selector === "oldest") this.selector = "lowest";
-		else if (definition.selector === "newest") this.selector = "highest";
-		else this.selector = definition.selector;
+		this.selector = definition.selector || "oldest";
 	}
 
-	rank(data: T, index: number): number {
-		return this.ranker(data, index);
-	}
-
-	// Somehow, doing this makes data resolve to the right type inside a SourceTypeDefinition
-	byRank<V extends T>(callback: (data: V, index: number) => number): DuplicationGroup<V> {
-		return new DuplicationGroup(this.definition, callback);
+	member<T>(options: Partial<DuplicationGroupOptions<T>> = {}): DuplicationGroupMember<T> {
+		const _options: DuplicationGroupOptions<T> = {
+			rank: options.rank ?? (() => 0),
+			replaceIf: options.replaceIf ?? (() => true),
+		};
+		return {
+			group: this,
+			rank: _options.rank,
+			replaceIf: _options.replaceIf,
+		};
 	}
 }
 

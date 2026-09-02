@@ -7,6 +7,7 @@ import type {
 import { DescriptorInstance } from "../state/descriptor/DescriptorInstance.js";
 import type { DescriptorOption } from "../state/descriptor/DescriptorOption.js";
 import type { AnyDescriptorType, DescriptorType } from "../state/descriptor/DescriptorType.js";
+import type { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsert } from "../util/GetOrInsert.js";
@@ -30,6 +31,7 @@ export class DescriptorManager<TEntity> {
 
 	constructor(
 		private readonly counter: IdCounter,
+		private readonly duplicationResolver: DuplicationResolver,
 		private readonly sources: SourceManager
 	) {}
 
@@ -39,29 +41,18 @@ export class DescriptorManager<TEntity> {
 		data: TDescriptorData,
 		options?: DescriptorOption
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
-		switch (type.duplication.policy) {
-			case "allow":
+		const decision = this.duplicationResolver.decide(type, data, options?.key);
+
+		if (decision.action === "add") {
+			return this.sources.batch(() => {
+				decision.evict.forEach((evict) => evict.destroy());
 				return this.createDescriptor(agent, type, data, options);
-			case "ignore": {
-				const existingDescriptor = this.descriptorMap.get(type)?.values().next().value;
-				if (existingDescriptor) return undefined;
-				return this.createDescriptor(agent, type, data, options);
-			}
-			case "replace": {
-				return this.sources.batch(() => {
-					const existingDescriptor = this.descriptorMap.get(type)?.values().next().value;
-					existingDescriptor?.destroy();
-					return this.createDescriptor(agent, type, data, options);
-				});
-			}
-			case "reconcile": {
-				const existingDescriptor = this.descriptorMap.get(type)?.values().next().value;
-				if (!existingDescriptor) return this.createDescriptor(agent, type, data, options);
-				if (existingDescriptor.type.duplication.policy !== "reconcile")
-					throw new Error("Duplicate policy was changed");
-				existingDescriptor.type.duplication.reconcile(existingDescriptor, data);
-				return undefined;
-			}
+			});
+		} else if (decision.action === "ignore") {
+			return undefined;
+		} else if (decision.action === "reconcile") {
+			decision.reconcile(decision.target, data);
+			return undefined;
 		}
 	}
 
@@ -166,6 +157,11 @@ export class DescriptorManager<TEntity> {
 			data
 		);
 		getOrInsert(this.descriptorMap, type, new Set()).add(descriptor);
+		const duplicateUnregister = this.duplicationResolver.track(
+			descriptor.type,
+			options?.key,
+			descriptor
+		);
 		this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
 
 		descriptor.onUpdate(() =>
@@ -173,6 +169,7 @@ export class DescriptorManager<TEntity> {
 		);
 
 		descriptor.onDestroy(() => {
+			duplicateUnregister();
 			this.descriptorMap.get(type)?.delete(descriptor);
 			this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
 		});
