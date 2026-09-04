@@ -125,11 +125,7 @@ export class DescriptorManager<TEntity> {
 			{
 				agent,
 				addSource: (data, options) => {
-					type Writable<T> = {
-						-readonly [K in keyof T]: T[K];
-					};
-					const writableOptions: Writable<SourceOption> = {
-						priority: type.source.priority,
+					const newOptions: SourceOption = {
 						provenance: {
 							domain:
 								provenance.domain === "local"
@@ -137,12 +133,9 @@ export class DescriptorManager<TEntity> {
 									: "descriptor-replicated",
 							sequence: provenance.sequence,
 						},
+						...options,
 					};
-					if (options?.priority !== undefined)
-						writableOptions.priority = options.priority;
-					if (options?.provenance !== undefined)
-						writableOptions.provenance = options.provenance;
-					return this.sources.addSource(type.source, data, writableOptions);
+					return this.sources.addSource(type.source, data, newOptions);
 				},
 			},
 			data
@@ -152,6 +145,7 @@ export class DescriptorManager<TEntity> {
 		const descriptor = new DescriptorInstance<TDescriptorData, TSourceData>(
 			descriptorId,
 			type,
+			options?.key,
 			provenance,
 			binding as DescriptorBinding<TDescriptorData, TSourceData>,
 			data

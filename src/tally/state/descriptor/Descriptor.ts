@@ -7,6 +7,7 @@ import type { DescriptorType } from "./DescriptorType.js";
 export interface AnyDescriptor extends DuplicationCandidate {
 	readonly id: number;
 	readonly type: DescriptorType<unknown, unknown>;
+	readonly key: string | undefined;
 	readonly provenance: StateProvenance;
 
 	getSource(): Source;

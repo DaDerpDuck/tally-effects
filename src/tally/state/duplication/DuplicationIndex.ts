@@ -12,30 +12,33 @@ export interface DuplicationEntry {
 }
 
 export class DuplicationIndex {
-	private readonly duplicationMap = new Map<object, Map<unknown, Set<DuplicationEntry>>>();
+	private readonly duplicationMap = new Map<
+		object,
+		Map<string | typeof UnspecifiedKey, Set<DuplicationEntry>>
+	>();
 
-	get(domain: object, key: unknown): readonly DuplicationEntry[] {
+	get(domain: object, key: string | undefined): readonly DuplicationEntry[] {
 		return (
 			this.duplicationMap
 				.get(domain)
-				?.get(key === undefined ? UnspecifiedKey : key)
+				?.get(key ?? UnspecifiedKey)
 				?.values()
 				.toArray() ?? []
 		);
 	}
 
-	add(domain: object, key: unknown, entry: DuplicationEntry): Disconnect {
+	add(domain: object, key: string | undefined, entry: DuplicationEntry): Disconnect {
 		const keyBucket = getOrInsert(
 			this.duplicationMap,
 			domain,
 			new Map<unknown, Set<DuplicationEntry>>()
 		);
-		const entries = getOrInsert(keyBucket, key === undefined ? UnspecifiedKey : key, new Set());
+		const entries = getOrInsert(keyBucket, key ?? UnspecifiedKey, new Set());
 		entries.add(entry);
 
 		return () => {
 			entries.delete(entry);
-			if (entries.size === 0) keyBucket.delete(key === undefined ? UnspecifiedKey : key);
+			if (entries.size === 0) keyBucket.delete(key ?? UnspecifiedKey);
 			if (keyBucket.size === 0) this.duplicationMap.delete(domain);
 		};
 	}

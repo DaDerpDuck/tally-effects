@@ -7,6 +7,7 @@ export interface ReplicatedSource {
 	readonly id: SourceId;
 	readonly type: string;
 	readonly priority: number;
+	readonly key: string | undefined;
 	readonly data: ReplicationValue;
 }
 
@@ -17,6 +18,7 @@ export function serializeSource(source: Source): ReplicatedSource {
 		id: source.id,
 		type: source.type.name,
 		priority: source.priority,
+		key: source.key,
 		data: source.type.replication!.serialize(source.get()),
 	};
 }

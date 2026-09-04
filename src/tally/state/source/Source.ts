@@ -13,6 +13,7 @@ export interface Source<TData = unknown> extends DuplicationCandidate {
 	readonly id: number;
 	readonly type: SourceType<TData>;
 	readonly priority: number;
+	readonly key: string | undefined;
 	readonly provenance: StateProvenance;
 
 	set(data: TData): void;

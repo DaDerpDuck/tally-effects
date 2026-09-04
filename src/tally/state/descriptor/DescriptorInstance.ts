@@ -17,6 +17,7 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 	constructor(
 		public readonly id: DescriptorId,
 		public readonly type: DescriptorType<TDescriptorData, TSourceData>,
+		public readonly key: string | undefined,
 		public readonly provenance: StateProvenance,
 		private readonly binding: DescriptorBinding<TDescriptorData, TSourceData>,
 		private data: TDescriptorData

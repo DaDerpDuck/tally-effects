@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { AgentState, defineDescriptorType, defineSourceType } from "../src/index.js";
 
 describe("keyed source duplication", () => {
-	it("isolates conflicts by key and keeps null distinct from an unspecified key", () => {
+	it("isolates conflicts by key", () => {
 		const SourceType = defineSourceType<number>({
 			name: "KeyIsolationSource",
 			priority: 100,
@@ -14,15 +14,11 @@ describe("keyed source duplication", () => {
 		const firstA = agent.addSource(SourceType, 1, { key: "a" })!;
 		const firstB = agent.addSource(SourceType, 2, { key: "b" })!;
 		const firstUnkeyed = agent.addSource(SourceType, 3)!;
-		const firstNull = agent.addSource(SourceType, 4, { key: null })!;
 
 		expect(agent.addSource(SourceType, 10, { key: "a" })).toBeUndefined();
 		expect(agent.addSource(SourceType, 20, { key: "b" })).toBeUndefined();
 		expect(agent.addSource(SourceType, 30)).toBeUndefined();
-		expect(agent.addSource(SourceType, 40, { key: null })).toBeUndefined();
-		expect(agent.getSources(SourceType)).toEqual(
-			new Set([firstA, firstB, firstUnkeyed, firstNull])
-		);
+		expect(agent.getSources(SourceType)).toEqual(new Set([firstA, firstB, firstUnkeyed]));
 	});
 
 	it("unregisters only the destroyed candidate's key bucket", () => {

@@ -70,12 +70,13 @@ describe("replication", () => {
 
 	it("replicates source updates", () => {
 		const { clientAgent, serverAgent } = createReplicationFixture();
-		const serverSource = serverAgent.addSource(PropertySource, { value: 5 })!;
+		const serverSource = serverAgent.addSource(PropertySource, { value: 5 }, { key: "abc" })!;
 
 		serverSource.set({ value: 10 });
 
 		const clientSource = getClientSource(clientAgent);
 		expect(clientSource.priority).toBe(100);
+		expect(clientSource.key).toBe("abc");
 		expect(clientSource.get()).toEqual({ value: 10 });
 		expect(clientAgent.get(Property)).toBe(10);
 	});
@@ -218,6 +219,7 @@ describe("replication", () => {
 							id: 10,
 							type: "unknown",
 							priority: 0,
+							key: undefined,
 							data: null,
 						},
 					},

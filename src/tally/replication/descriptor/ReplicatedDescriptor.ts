@@ -6,6 +6,7 @@ export type DescriptorId = number;
 export interface ReplicatedDescriptor {
 	readonly id: DescriptorId;
 	readonly type: string;
+	readonly key: string | undefined;
 	readonly data: ReplicationValue;
 }
 
@@ -15,6 +16,7 @@ export function serializeDescriptor(descriptor: AnyDescriptor): ReplicatedDescri
 	return {
 		id: descriptor.id,
 		type: descriptor.type.name,
+		key: descriptor.key,
 		data: descriptor.type.replication.serialize(descriptor.get()),
 	};
 }

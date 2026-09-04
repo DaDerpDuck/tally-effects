@@ -23,7 +23,7 @@ export class DuplicationResolver {
 	decide<TInstance extends DuplicationCandidate<TData>, TData>(
 		type: DuplicableType<TInstance, TData>,
 		data: TData,
-		key?: unknown
+		key: string | undefined
 	): DuplicationDecision<TInstance, TData> {
 		const policy = type.duplication;
 		if (policy.kind === "allow") return { action: "add", evict: [] };
@@ -98,7 +98,7 @@ export class DuplicationResolver {
 
 	track<TInstance extends DuplicationCandidate<TData>, TData>(
 		type: DuplicableType<TInstance, TData>,
-		key: unknown,
+		key: string | undefined,
 		instance: TInstance
 	): Disconnect {
 		const order = this.order++;

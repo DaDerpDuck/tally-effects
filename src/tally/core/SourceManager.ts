@@ -139,7 +139,7 @@ export class SourceManager {
 		};
 		let handles = this.applyModifiers(type, priority, provenance, data);
 
-		const source = new SourceInstance(sourceId, type, priority, provenance, data);
+		const source = new SourceInstance(sourceId, type, priority, options?.key, provenance, data);
 		this.sourceModifiersMap.set(source, handles);
 		for (const handle of handles) this.dirtyProperties.add(handle.property);
 		this.requestResolve();

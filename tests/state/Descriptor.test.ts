@@ -405,7 +405,7 @@ describe("descriptor replication", () => {
 					target: "descriptor",
 					event: {
 						kind: "added",
-						descriptor: { id: 10, type: LocalDescriptor.name, data: 1 },
+						descriptor: { id: 10, type: LocalDescriptor.name, key: undefined, data: 1 },
 					},
 				},
 			])
@@ -479,7 +479,7 @@ describe("descriptor replication", () => {
 				target: "descriptor",
 				event: {
 					kind: "added",
-					descriptor: { id: 999, type: "UnknownDescriptor", data: 10 },
+					descriptor: { id: 999, type: "UnknownDescriptor", key: undefined, data: 10 },
 				},
 			},
 		];
