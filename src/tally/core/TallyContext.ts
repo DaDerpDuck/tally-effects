@@ -12,7 +12,7 @@ import type { Registrable, Registry } from "../state/Registrable.js";
 import type { Source } from "../state/source/Source.js";
 import type { AnySourceType } from "../state/source/SourceType.js";
 import type { Disconnect } from "../util/Disconnect.js";
-import { getOrInsert } from "../util/GetOrInsert.js";
+import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import { AgentState } from "./AgentState.js";
 
 type ReplicationCallback<TEntity> = (agent: AgentState<TEntity>, event: ReplicationEvent) => void;
@@ -71,7 +71,7 @@ export class TallyContext<TEntity> {
 		this.descriptorHandlers.forEach((handler, type) =>
 			agent.registerDescriptorHandler(type as DescriptorType<unknown, unknown>, handler)
 		);
-		const disconnectSet = getOrInsert(this.agentConnections, agent, new Set());
+		const disconnectSet = getOrInsertComputed(this.agentConnections, agent, () => new Set());
 		disconnectSet.add(
 			agent.onSourceAdded((source) => {
 				this.sourceAddedCallbacks.forEach((callback) => callback(agent, source));

@@ -8,9 +8,10 @@ import { DescriptorInstance } from "../state/descriptor/DescriptorInstance.js";
 import type { DescriptorOption } from "../state/descriptor/DescriptorOption.js";
 import type { AnyDescriptorType, DescriptorType } from "../state/descriptor/DescriptorType.js";
 import type { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
+import type { PlannedInstance } from "../state/PlannedInstance.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import type { Disconnect } from "../util/Disconnect.js";
-import { getOrInsert } from "../util/GetOrInsert.js";
+import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
 import type { AgentState } from "./AgentState.js";
 import type { SourceManager } from "./SourceManager.js";
@@ -41,17 +42,16 @@ export class DescriptorManager<TEntity> {
 		data: TDescriptorData,
 		options?: DescriptorOption
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
-		const decision = this.duplicationResolver.decide(type, data, options?.key);
+		const preparedDescriptor = this.prepareDescriptor(agent, type, data, options);
+		if (!preparedDescriptor) return undefined;
+		const result = this.sources.batch(() =>
+			this.duplicationResolver.resolve(preparedDescriptor, type, data, options?.key)
+		);
 
-		if (decision.action === "add") {
-			return this.sources.batch(() => {
-				decision.evict.forEach((evict) => evict.destroy());
-				return this.createDescriptor(agent, type, data, options);
-			});
-		} else if (decision.action === "ignore") {
-			return undefined;
-		} else if (decision.action === "reconcile") {
-			decision.reconcile(decision.target, data);
+		if (result.result === "added") {
+			result.instance.onDestroy(() => result.unregister());
+			return result.instance;
+		} else {
 			return undefined;
 		}
 	}
@@ -101,73 +101,87 @@ export class DescriptorManager<TEntity> {
 		this.descriptorUpdatedCallbacks.clear();
 	}
 
-	private createDescriptor<TDescriptorData, TSourceData>(
+	private prepareDescriptor<TDescriptorData, TSourceData>(
 		agent: AgentState<TEntity>,
 		type: DescriptorType<TDescriptorData, TSourceData>,
 		data: TDescriptorData,
 		options?: DescriptorOption
-	): Descriptor<TDescriptorData, TSourceData> | undefined {
+	): PlannedInstance<Descriptor<TDescriptorData, TSourceData>> | undefined {
 		const handler = this.descriptorHandlers.get(type);
 		if (!handler)
 			throw new Error(
 				"Attempted to add a descriptor source before a descriptor handler was assigned"
 			);
 
-		// Reserve id before handler is called.
-		const descriptorId = this.counter.next();
+		let descriptorOptional: DescriptorInstance<TDescriptorData, TSourceData> | undefined;
+		const getInstance = (): DescriptorInstance<TDescriptorData, TSourceData> => {
+			if (descriptorOptional) return descriptorOptional;
 
-		const provenance = options?.provenance ?? {
-			domain: "local",
-			sequence: descriptorId,
+			// Reserve id before handler is called.
+			const descriptorId = this.counter.next();
+
+			const provenance = options?.provenance ?? {
+				domain: "local",
+				sequence: descriptorId,
+			};
+
+			const bindingProvider = (): DescriptorBinding<TDescriptorData, TSourceData> =>
+				handler(
+					{
+						agent,
+						addSource: (data, options) => {
+							const newOptions: SourceOption = {
+								provenance: {
+									domain:
+										provenance.domain === "local"
+											? "descriptor-local"
+											: "descriptor-replicated",
+									sequence: provenance.sequence,
+								},
+								...options,
+							};
+							return this.sources.addSource(type.source, data, newOptions);
+						},
+					},
+					data
+				) as DescriptorBinding<TDescriptorData, TSourceData>;
+
+			const descriptor = new DescriptorInstance<TDescriptorData, TSourceData>(
+				descriptorId,
+				type,
+				options?.key,
+				provenance,
+				bindingProvider,
+				data
+			);
+
+			descriptorOptional = descriptor;
+			return descriptor;
 		};
 
-		const binding = handler(
-			{
-				agent,
-				addSource: (data, options) => {
-					const newOptions: SourceOption = {
-						provenance: {
-							domain:
-								provenance.domain === "local"
-									? "descriptor-local"
-									: "descriptor-replicated",
-							sequence: provenance.sequence,
-						},
-						...options,
-					};
-					return this.sources.addSource(type.source, data, newOptions);
-				},
+		return {
+			get: getInstance,
+			publish: () => {
+				const descriptor = getInstance();
+				if (!descriptor.tryBind()) return undefined;
+
+				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
+				this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
+
+				descriptor.onUpdate(() =>
+					this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor))
+				);
+
+				descriptor.onDestroy(() => {
+					this.descriptorMap.get(type)?.delete(descriptor);
+					this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
+				});
+
+				return descriptor;
 			},
-			data
-		);
-		if (!binding) return undefined;
-
-		const descriptor = new DescriptorInstance<TDescriptorData, TSourceData>(
-			descriptorId,
-			type,
-			options?.key,
-			provenance,
-			binding as DescriptorBinding<TDescriptorData, TSourceData>,
-			data
-		);
-		getOrInsert(this.descriptorMap, type, new Set()).add(descriptor);
-		const duplicateUnregister = this.duplicationResolver.track(
-			descriptor.type,
-			options?.key,
-			descriptor
-		);
-		this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
-
-		descriptor.onUpdate(() =>
-			this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor))
-		);
-
-		descriptor.onDestroy(() => {
-			duplicateUnregister();
-			this.descriptorMap.get(type)?.delete(descriptor);
-			this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
-		});
-
-		return descriptor;
+			cancel: () => {
+				descriptorOptional?.destroy();
+			},
+		};
 	}
 }

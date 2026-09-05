@@ -9,7 +9,7 @@ import type { SourceType } from "./SourceType.js";
  * Updating Source data through the `set` method recalculates its contributing
  * Modifiers while retaining its deterministic ordering.
  */
-export interface Source<TData = unknown> extends DuplicationCandidate {
+export interface Source<TData = unknown> extends DuplicationCandidate<TData> {
 	readonly id: number;
 	readonly type: SourceType<TData>;
 	readonly priority: number;

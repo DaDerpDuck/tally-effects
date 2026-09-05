@@ -1,45 +1,134 @@
 import type { Disconnect } from "../../util/Disconnect.js";
-import { getOrInsert } from "../../util/GetOrInsert.js";
+import { getOrInsertComputed } from "../../util/GetOrInsert.js";
+import type { PlannedInstance } from "../PlannedInstance.js";
 import type { DuplicationCandidate } from "./DuplicationCandidate.js";
 
-const UnspecifiedKey = Symbol("UnspecifiedKey");
-
-export interface DuplicationEntry {
-	readonly candidate: DuplicationCandidate;
+export type PlannedDuplicationEntry<TInstance extends DuplicationCandidate> = {
+	readonly kind: "pending";
+	readonly plannedCandidate: PlannedInstance<TInstance>;
+	readonly candidate: TInstance;
 	readonly order: number;
+	active: boolean;
 	readonly score: () => number;
-	readonly replaceIf: (existingRank: number, incomingRank: number) => boolean;
+	readonly evict: () => void;
+	readonly commit: () => LiveDuplicationEntry<TInstance> | undefined;
+};
+
+export type LiveDuplicationEntry<TInstance extends DuplicationCandidate> = {
+	readonly kind: "live";
+	readonly candidate: TInstance;
+	readonly order: number;
+	active: boolean;
+	readonly score: () => number;
+	readonly evict: () => void;
+};
+
+export type DuplicationEntry<TInstance extends DuplicationCandidate = DuplicationCandidate> =
+	PlannedDuplicationEntry<TInstance> | LiveDuplicationEntry<TInstance>;
+
+interface DuplicationBucket {
+	readonly entries: DuplicationEntry[];
+	shrink(): void;
 }
 
 export class DuplicationIndex {
-	private readonly duplicationMap = new Map<
-		object,
-		Map<string | typeof UnspecifiedKey, Set<DuplicationEntry>>
-	>();
+	private static readonly EmptyArray = new Array<DuplicationEntry>(0);
+	private order = 0;
+
+	private readonly duplicationStruct = {
+		unkeyed: new Map<object, DuplicationEntry[]>(),
+		keyed: new Map<object, Map<string, DuplicationEntry[]>>(),
+	} as const;
 
 	get(domain: object, key: string | undefined): readonly DuplicationEntry[] {
-		return (
-			this.duplicationMap
-				.get(domain)
-				?.get(key ?? UnspecifiedKey)
-				?.values()
-				.toArray() ?? []
-		);
+		if (key === undefined)
+			return this.duplicationStruct.unkeyed.get(domain) ?? DuplicationIndex.EmptyArray;
+		else
+			return (
+				this.duplicationStruct.keyed.get(domain)?.get(key) ?? DuplicationIndex.EmptyArray
+			);
 	}
 
-	add(domain: object, key: string | undefined, entry: DuplicationEntry): Disconnect {
-		const keyBucket = getOrInsert(
-			this.duplicationMap,
-			domain,
-			new Map<unknown, Set<DuplicationEntry>>()
-		);
-		const entries = getOrInsert(keyBucket, key ?? UnspecifiedKey, new Set());
-		entries.add(entry);
+	plan<TInstance extends DuplicationCandidate>(
+		domain: object,
+		key: string | undefined,
+		plannedInstance: PlannedInstance<TInstance>,
+		score?: () => number
+	): PlannedDuplicationEntry<TInstance> {
+		const bucket = this.getOrCreateBucket(domain, key);
 
-		return () => {
-			entries.delete(entry);
-			if (entries.size === 0) keyBucket.delete(key ?? UnspecifiedKey);
-			if (keyBucket.size === 0) this.duplicationMap.delete(domain);
+		const plannedEntry: PlannedDuplicationEntry<TInstance> = {
+			kind: "pending",
+			plannedCandidate: plannedInstance,
+			candidate: plannedInstance.get(),
+			order: this.order++,
+			active: true,
+			score: score ?? (() => plannedEntry.order),
+			commit() {
+				if (!plannedEntry.active) return;
+				plannedEntry.active = false;
+				const index = bucket.entries.findIndex((e) => e === plannedEntry);
+				if (index < 0) return;
+				const liveCandidate = plannedEntry.plannedCandidate.publish();
+				if (!liveCandidate) return; // publish rejected for whatever reason
+				const liveEntry: LiveDuplicationEntry<TInstance> = {
+					kind: "live",
+					candidate: liveCandidate,
+					order: plannedEntry.order,
+					active: true,
+					score: plannedEntry.score,
+					evict() {
+						if (!liveEntry.active) return;
+						liveEntry.active = false;
+						liveEntry.candidate.destroy();
+						const index = bucket.entries.findIndex((e) => e === liveEntry);
+						if (index < 0) return;
+						bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
+						bucket.entries.pop();
+						bucket.shrink();
+					},
+				};
+				bucket.entries[index] = liveEntry;
+				return liveEntry;
+			},
+			evict() {
+				if (!plannedEntry.active) return;
+				plannedEntry.active = false;
+				const index = bucket.entries.findIndex((e) => e === plannedEntry);
+				if (index < 0) return;
+				bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
+				bucket.entries.pop();
+				bucket.shrink();
+			},
 		};
+
+		bucket.entries.push(plannedEntry);
+		return plannedEntry;
+	}
+
+	private getOrCreateBucket(domain: object, key: string | undefined): DuplicationBucket {
+		if (key === undefined) {
+			const entries = getOrInsertComputed(this.duplicationStruct.unkeyed, domain, () => []);
+			return {
+				entries,
+				shrink: () => {
+					if (entries.length === 0) this.duplicationStruct.unkeyed.delete(domain);
+				},
+			};
+		} else {
+			const keyBucket = getOrInsertComputed(
+				this.duplicationStruct.keyed,
+				domain,
+				() => new Map<string, DuplicationEntry[]>()
+			);
+			const entries = getOrInsertComputed(keyBucket, key, () => []);
+			return {
+				entries,
+				shrink: () => {
+					if (entries.length === 0) keyBucket.delete(key);
+					if (keyBucket.size === 0) this.duplicationStruct.keyed.delete(domain);
+				},
+			};
+		}
 	}
 }

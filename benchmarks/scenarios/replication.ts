@@ -32,11 +32,13 @@ function snapshots(
 			id: index + 1 + (high && index >= Math.floor(size / 2) ? size : 0),
 			type: sourceName,
 			priority: 100,
+			key: undefined,
 			data: high ? 2 : 1,
 		})),
 		descriptors: Array.from({ length: size }, (_, index) => ({
 			id: 4 * size + index + 1 + (high && index >= Math.floor(size / 2) ? size : 0),
 			type: descriptorName,
+			key: undefined,
 			data: high ? 2 : 1,
 		})),
 	}));

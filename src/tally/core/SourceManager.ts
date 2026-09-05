@@ -2,13 +2,14 @@ import { ModifierRegistry, type ModifierHandle } from "../modifier/ModifierRegis
 import { OrderingDomain } from "../modifier/OrderingDomain.js";
 import type { AnyProperty, Property } from "../property/Property.js";
 import type { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
+import type { PlannedInstance } from "../state/PlannedInstance.js";
 import type { StateProvenance } from "../state/Provenance.js";
 import type { Source } from "../state/source/Source.js";
 import { SourceInstance } from "../state/source/SourceInstance.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType, type AnySourceType } from "../state/source/SourceType.js";
 import type { Disconnect } from "../util/Disconnect.js";
-import { getOrInsert } from "../util/GetOrInsert.js";
+import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
 
 export type PropertyCallback<T = unknown> = (newValue: T, oldValue: T) => void;
@@ -18,7 +19,7 @@ export class SourceManager {
 	private static readonly EmptySet: ReadonlySet<unknown> = new Set();
 
 	private readonly modifierRegistry = new ModifierRegistry();
-	private readonly sourceModifiersMap = new Map<Source, ModifierHandle[]>();
+	private readonly sourceModifiersMap = new Map<Source, readonly ModifierHandle[]>();
 	private readonly sourceMap = new Map<AnySourceType, Set<Source>>();
 
 	private readonly propertyCallbacks = new Map<AnyProperty, Set<PropertyCallback>>();
@@ -41,17 +42,19 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		const decision = this.duplicationResolver.decide(type, data, options?.key);
+		const result = this.batch(() =>
+			this.duplicationResolver.resolve(
+				this.prepareSource(type, data, options),
+				type,
+				data,
+				options?.key
+			)
+		);
 
-		if (decision.action === "add") {
-			return this.batch(() => {
-				decision.evict.forEach((evict) => evict.destroy());
-				return this.createSource(type, data, options);
-			});
-		} else if (decision.action === "ignore") {
-			return undefined;
-		} else if (decision.action === "reconcile") {
-			decision.reconcile(decision.target, data);
+		if (result.result === "added") {
+			result.instance.onDestroy(() => result.unregister());
+			return result.instance;
+		} else {
 			return undefined;
 		}
 	}
@@ -126,54 +129,76 @@ export class SourceManager {
 		this.dirtyProperties.clear();
 	}
 
-	private createSource<TData>(
+	private prepareSource<TData>(
 		type: SourceType<TData>,
 		data: TData,
 		options?: SourceOption
-	): SourceInstance<TData> {
-		const priority = options?.priority ?? type.priority;
-		const sourceId = this.counter.next();
-		const provenance = options?.provenance ?? {
-			domain: "local",
-			sequence: sourceId,
+	): PlannedInstance<SourceInstance<TData>> {
+		let sourceOptional: SourceInstance<TData> | undefined;
+		const getInstance = (): SourceInstance<TData> => {
+			if (sourceOptional) return sourceOptional;
+			const priority = options?.priority ?? type.priority;
+			const sourceId = this.counter.next();
+			const provenance = options?.provenance ?? {
+				domain: "local",
+				sequence: sourceId,
+			};
+			const source = new SourceInstance(
+				sourceId,
+				type,
+				priority,
+				options?.key,
+				provenance,
+				data
+			);
+			sourceOptional = source;
+			return source;
 		};
-		let handles = this.applyModifiers(type, priority, provenance, data);
 
-		const source = new SourceInstance(sourceId, type, priority, options?.key, provenance, data);
-		this.sourceModifiersMap.set(source, handles);
-		for (const handle of handles) this.dirtyProperties.add(handle.property);
-		this.requestResolve();
+		// TODO: Clean this up
+		return {
+			get: getInstance,
+			publish: () => {
+				const source = getInstance();
+				let handles = this.applyModifiers(type, source.priority, source.provenance, data);
+				this.sourceModifiersMap.set(source, handles);
+				for (const handle of handles) this.dirtyProperties.add(handle.property);
+				this.requestResolve();
 
-		getOrInsert(this.sourceMap, type, new Set()).add(source);
-		const duplicateUnregister = this.duplicationResolver.track(
-			source.type,
-			options?.key,
-			source
-		);
+				getOrInsertComputed(this.sourceMap, type, () => new Set()).add(source);
 
-		source.onUpdate(() => {
-			for (const handle of handles) this.dirtyProperties.add(handle.property);
-			this.clearModifierHandles(handles);
-			handles = this.applyModifiers(type, priority, source.provenance, source.get());
-			this.sourceModifiersMap.set(source, handles);
-			for (const handle of handles) this.dirtyProperties.add(handle.property);
-			this.requestResolve();
-			this.sourceUpdatedCallbacks.forEach((callback) => callback(source));
-		});
+				source.onUpdate(() => {
+					for (const handle of handles) this.dirtyProperties.add(handle.property);
+					this.clearModifierHandles(handles);
+					handles = this.applyModifiers(
+						type,
+						source.priority,
+						source.provenance,
+						source.get()
+					);
+					this.sourceModifiersMap.set(source, handles);
+					for (const handle of handles) this.dirtyProperties.add(handle.property);
+					this.requestResolve();
+					this.sourceUpdatedCallbacks.forEach((callback) => callback(source));
+				});
 
-		source.onDestroy(() => {
-			duplicateUnregister();
-			for (const handle of handles) this.dirtyProperties.add(handle.property);
-			this.clearModifierHandles(handles);
-			this.sourceModifiersMap.delete(source);
-			this.sourceMap.get(source.type)?.delete(source);
-			this.requestResolve();
-			this.sourceRemovedCallbacks.forEach((callback) => callback(source));
-		});
+				source.onDestroy(() => {
+					for (const handle of handles) this.dirtyProperties.add(handle.property);
+					this.clearModifierHandles(handles);
+					this.sourceModifiersMap.delete(source);
+					this.sourceMap.get(source.type)?.delete(source);
+					this.requestResolve();
+					this.sourceRemovedCallbacks.forEach((callback) => callback(source));
+				});
 
-		this.sourceAddedCallbacks.forEach((callback) => callback(source));
+				this.sourceAddedCallbacks.forEach((callback) => callback(source));
 
-		return source;
+				return source;
+			},
+			cancel: () => {
+				sourceOptional?.destroy();
+			},
+		};
 	}
 
 	private requestResolve() {
