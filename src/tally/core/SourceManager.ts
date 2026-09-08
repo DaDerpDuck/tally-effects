@@ -42,17 +42,19 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		const decision = this.duplicationResolver.decide(type, data, options?.key);
+		const result = this.batch(() =>
+			this.duplicationResolver.resolve(
+				this.prepareSource(type, data, options),
+				type,
+				data,
+				options?.key
+			)
+		);
 
-		if (decision.action === "add") {
-			return this.batch(() => {
-				decision.evict.forEach((evict) => evict.destroy());
-				return this.prepareSource(type, data, options).publish();
-			});
-		} else if (decision.action === "ignore") {
-			return undefined;
-		} else if (decision.action === "reconcile") {
-			decision.reconcile(decision.target, data);
+		if (result.result === "added") {
+			result.instance.onDestroy(() => result.unregister());
+			return result.instance;
+		} else {
 			return undefined;
 		}
 	}
@@ -164,11 +166,6 @@ export class SourceManager {
 				this.requestResolve();
 
 				getOrInsertComputed(this.sourceMap, type, () => new Set()).add(source);
-				const duplicateUnregister = this.duplicationResolver.track(
-					source.type,
-					options?.key,
-					source
-				);
 
 				source.onUpdate(() => {
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
@@ -186,7 +183,6 @@ export class SourceManager {
 				});
 
 				source.onDestroy(() => {
-					duplicateUnregister();
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.clearModifierHandles(handles);
 					this.sourceModifiersMap.delete(source);

@@ -42,17 +42,16 @@ export class DescriptorManager<TEntity> {
 		data: TDescriptorData,
 		options?: DescriptorOption
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
-		const decision = this.duplicationResolver.decide(type, data, options?.key);
+		const preparedDescriptor = this.prepareDescriptor(agent, type, data, options);
+		if (!preparedDescriptor) return undefined;
+		const result = this.sources.batch(() =>
+			this.duplicationResolver.resolve(preparedDescriptor, type, data, options?.key)
+		);
 
-		if (decision.action === "add") {
-			return this.sources.batch(() => {
-				decision.evict.forEach((evict) => evict.destroy());
-				return this.prepareDescriptor(agent, type, data, options)?.publish();
-			});
-		} else if (decision.action === "ignore") {
-			return undefined;
-		} else if (decision.action === "reconcile") {
-			decision.reconcile(decision.target, data);
+		if (result.result === "added") {
+			result.instance.onDestroy(() => result.unregister());
+			return result.instance;
+		} else {
 			return undefined;
 		}
 	}
@@ -114,53 +113,59 @@ export class DescriptorManager<TEntity> {
 				"Attempted to add a descriptor source before a descriptor handler was assigned"
 			);
 
-		// Reserve id before handler is called.
-		const descriptorId = this.counter.next();
+		let descriptorOptional: DescriptorInstance<TDescriptorData, TSourceData> | undefined;
+		const getInstance = (): DescriptorInstance<TDescriptorData, TSourceData> => {
+			if (descriptorOptional) return descriptorOptional;
 
-		const provenance = options?.provenance ?? {
-			domain: "local",
-			sequence: descriptorId,
+			// Reserve id before handler is called.
+			const descriptorId = this.counter.next();
+
+			const provenance = options?.provenance ?? {
+				domain: "local",
+				sequence: descriptorId,
+			};
+
+			const bindingProvider = (): DescriptorBinding<TDescriptorData, TSourceData> =>
+				handler(
+					{
+						agent,
+						addSource: (data, options) => {
+							const newOptions: SourceOption = {
+								provenance: {
+									domain:
+										provenance.domain === "local"
+											? "descriptor-local"
+											: "descriptor-replicated",
+									sequence: provenance.sequence,
+								},
+								...options,
+							};
+							return this.sources.addSource(type.source, data, newOptions);
+						},
+					},
+					data
+				) as DescriptorBinding<TDescriptorData, TSourceData>;
+
+			const descriptor = new DescriptorInstance<TDescriptorData, TSourceData>(
+				descriptorId,
+				type,
+				options?.key,
+				provenance,
+				bindingProvider,
+				data
+			);
+
+			descriptorOptional = descriptor;
+			return descriptor;
 		};
 
-		const binding = handler(
-			{
-				agent,
-				addSource: (data, options) => {
-					const newOptions: SourceOption = {
-						provenance: {
-							domain:
-								provenance.domain === "local"
-									? "descriptor-local"
-									: "descriptor-replicated",
-							sequence: provenance.sequence,
-						},
-						...options,
-					};
-					return this.sources.addSource(type.source, data, newOptions);
-				},
-			},
-			data
-		);
-		if (!binding) return undefined;
-
-		const descriptor = new DescriptorInstance<TDescriptorData, TSourceData>(
-			descriptorId,
-			type,
-			options?.key,
-			provenance,
-			binding as DescriptorBinding<TDescriptorData, TSourceData>,
-			data
-		);
-
 		return {
-			get: () => descriptor,
+			get: getInstance,
 			publish: () => {
+				const descriptor = getInstance();
+				if (!descriptor.tryBind()) return undefined;
+
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
-				const duplicateUnregister = this.duplicationResolver.track(
-					descriptor.type,
-					options?.key,
-					descriptor
-				);
 				this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
 
 				descriptor.onUpdate(() =>
@@ -168,7 +173,6 @@ export class DescriptorManager<TEntity> {
 				);
 
 				descriptor.onDestroy(() => {
-					duplicateUnregister();
 					this.descriptorMap.get(type)?.delete(descriptor);
 					this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
 				});
@@ -176,7 +180,7 @@ export class DescriptorManager<TEntity> {
 				return descriptor;
 			},
 			cancel: () => {
-				descriptor.destroy();
+				descriptorOptional?.destroy();
 			},
 		};
 	}
