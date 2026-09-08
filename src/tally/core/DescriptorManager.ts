@@ -8,6 +8,7 @@ import { DescriptorInstance } from "../state/descriptor/DescriptorInstance.js";
 import type { DescriptorOption } from "../state/descriptor/DescriptorOption.js";
 import type { AnyDescriptorType, DescriptorType } from "../state/descriptor/DescriptorType.js";
 import type { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
+import type { PlannedInstance } from "../state/PlannedInstance.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
@@ -46,7 +47,7 @@ export class DescriptorManager<TEntity> {
 		if (decision.action === "add") {
 			return this.sources.batch(() => {
 				decision.evict.forEach((evict) => evict.destroy());
-				return this.createDescriptor(agent, type, data, options);
+				return this.prepareDescriptor(agent, type, data, options)?.publish();
 			});
 		} else if (decision.action === "ignore") {
 			return undefined;
@@ -101,12 +102,12 @@ export class DescriptorManager<TEntity> {
 		this.descriptorUpdatedCallbacks.clear();
 	}
 
-	private createDescriptor<TDescriptorData, TSourceData>(
+	private prepareDescriptor<TDescriptorData, TSourceData>(
 		agent: AgentState<TEntity>,
 		type: DescriptorType<TDescriptorData, TSourceData>,
 		data: TDescriptorData,
 		options?: DescriptorOption
-	): Descriptor<TDescriptorData, TSourceData> | undefined {
+	): PlannedInstance<Descriptor<TDescriptorData, TSourceData>> | undefined {
 		const handler = this.descriptorHandlers.get(type);
 		if (!handler)
 			throw new Error(
@@ -150,24 +151,33 @@ export class DescriptorManager<TEntity> {
 			binding as DescriptorBinding<TDescriptorData, TSourceData>,
 			data
 		);
-		getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
-		const duplicateUnregister = this.duplicationResolver.track(
-			descriptor.type,
-			options?.key,
-			descriptor
-		);
-		this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
 
-		descriptor.onUpdate(() =>
-			this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor))
-		);
+		return {
+			instance: descriptor,
+			publish: () => {
+				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
+				const duplicateUnregister = this.duplicationResolver.track(
+					descriptor.type,
+					options?.key,
+					descriptor
+				);
+				this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
 
-		descriptor.onDestroy(() => {
-			duplicateUnregister();
-			this.descriptorMap.get(type)?.delete(descriptor);
-			this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
-		});
+				descriptor.onUpdate(() =>
+					this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor))
+				);
 
-		return descriptor;
+				descriptor.onDestroy(() => {
+					duplicateUnregister();
+					this.descriptorMap.get(type)?.delete(descriptor);
+					this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
+				});
+
+				return descriptor;
+			},
+			cancel: () => {
+				descriptor.destroy();
+			},
+		};
 	}
 }
