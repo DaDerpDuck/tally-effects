@@ -24,7 +24,8 @@ export interface AnyDescriptor extends DuplicationCandidate {
  * Updating Descriptor data through the `set` method calls the update method
  * on the DescriptorBinding.
  */
-export interface Descriptor<TDescriptorData, TSourceData> extends AnyDescriptor {
+export interface Descriptor<TDescriptorData, TSourceData>
+	extends AnyDescriptor, DuplicationCandidate<TDescriptorData> {
 	readonly id: number;
 	readonly type: DescriptorType<TDescriptorData, TSourceData>;
 	readonly provenance: StateProvenance;
