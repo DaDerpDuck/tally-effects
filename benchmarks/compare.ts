@@ -1,27 +1,15 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { renderComparison, type ComparisonReport } from "./shared/comparison.js";
 
-interface Report {
-	commit: string;
-	suites: Array<{
-		name: string;
-		tasks: Array<{
-			name: string;
-			medianOfMedianNs: number;
-			relativeMad: number | null;
-			warnings: string[];
-		}>;
-	}>;
-}
-
-const [, , baselinePath, candidatePath, requestedOutputPath] = process.argv;
-
-if (!baselinePath || !candidatePath) {
+const [, , baselinePath, candidatePath, requestedOutputPath, ...extra] = process.argv;
+if (!baselinePath || !candidatePath || extra.length > 0) {
 	throw new Error("Usage: compare.ts <baseline.json> <candidate.json> [output.md]");
 }
 
-const baseline = JSON.parse(await readFile(baselinePath, "utf8")) as Report;
-const candidate = JSON.parse(await readFile(candidatePath, "utf8")) as Report;
+const baseline = JSON.parse(await readFile(baselinePath, "utf8")) as ComparisonReport;
+const candidate = JSON.parse(await readFile(candidatePath, "utf8")) as ComparisonReport;
+const markdown = renderComparison(baseline, candidate);
 const outputPath = resolve(
 	requestedOutputPath ??
 		join(
@@ -30,58 +18,5 @@ const outputPath = resolve(
 			`comparison-${baseline.commit.slice(0, 8)}-vs-${candidate.commit.slice(0, 8)}.md`
 		)
 );
-
-const baselineTasks = new Map(
-	baseline.suites.flatMap((suite) =>
-		suite.tasks.map((task) => [`${suite.name}: *${task.name}*`, task] as const)
-	)
-);
-
-const rows = candidate.suites.flatMap((suite) =>
-	suite.tasks.flatMap((task) => {
-		const key = `${suite.name}: *${task.name}*` as const;
-		const previous = baselineTasks.get(key);
-
-		if (!previous) return [];
-
-		const change =
-			previous.medianOfMedianNs === 0
-				? null
-				: (task.medianOfMedianNs / previous.medianOfMedianNs - 1) * 100;
-
-		const remarks = [
-			...(task.warnings ?? []),
-			task.relativeMad === null
-				? "MAD unavailable"
-				: task.relativeMad > 1
-					? `relative MAD ${task.relativeMad.toFixed(1)}%`
-					: "",
-			change === null ? "baseline median is zero" : "",
-		]
-			.filter(Boolean)
-			.join(", ");
-
-		return [
-			`| ${key} | ${previous.medianOfMedianNs.toFixed(0)} | ` +
-				`${task.medianOfMedianNs.toFixed(0)} | ` +
-				`${change === null ? "n/a" : `${change >= 0 ? "+" : ""}${change.toFixed(1)}%`} | ` +
-				`${remarks} |`,
-		];
-	})
-);
-
-const markdown = [
-	"# Benchmark comparison",
-	"",
-	`Baseline: \`${baseline.commit.slice(0, 8)}\``,
-	"",
-	`Candidate: \`${candidate.commit.slice(0, 8)}\``,
-	"",
-	"| Benchmark | Baseline median (ns) | Candidate median (ns) | Change | Remarks |",
-	"|---|---:|---:|---:|---|",
-	...rows,
-	"",
-].join("\n");
-
 await mkdir(dirname(outputPath), { recursive: true });
 await writeFile(outputPath, markdown);

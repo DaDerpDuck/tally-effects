@@ -165,14 +165,13 @@ const batchResolution = createBench("Source insertion batching", HEAVY_BENCH_OPT
 for (const size of [10, 100, 1_000] as const) {
 	for (const batched of [false, true]) {
 		const { agent, type } = createNumberSourceFixture();
+		const addSources = () => {
+			for (let i = 0; i < size; i++) agent.addSource(type, 1);
+		};
 
 		batchResolution.add(
 			`${batched ? "batched" : "unbatched"} / ${size} sources`,
 			() => {
-				const addSources = () => {
-					for (let i = 0; i < size; i++) agent.addSource(type, 1);
-				};
-
 				if (batched) agent.batch(addSources);
 				else addSources();
 			},

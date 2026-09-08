@@ -6,6 +6,7 @@ import {
 	type FnOptions,
 	type TimerSaturationReason,
 } from "tinybench";
+import type { BenchmarkReport, BenchmarkSuiteReport, BenchmarkTaskReport } from "./report.js";
 
 const QUICK_BENCH_OPTIONS = {
 	time: 50,
@@ -32,9 +33,8 @@ const COMPARISON_BENCH_OPTIONS = {
 } as const satisfies BenchOptions;
 
 export const HEAVY_BENCH_OPTIONS = {
-	time: 50,
+	// Lower only the sample minimums. The selected profile still owns the time windows.
 	iterations: 20,
-	warmupTime: 50,
 	warmupIterations: 5,
 } as const satisfies BenchOptions;
 
@@ -47,7 +47,7 @@ export type BenchmarkProfile = "default" | "quick" | "comparison";
 const WARNING_GUIDANCE = {
 	"low-distinct": "Increase the work per sample so the timer sees more distinct values.",
 	"zero-dominated": "Batch more work into each sample; most measurements hit zero.",
-	"zero-mad": "Batch more work into each sample; the task is timer-quantized.",
+	"zero-mad": "Median absolute deviation is zero; check timer resolution and batch more work.",
 } as const satisfies Record<TimerSaturationReason, string>;
 
 let logLevel: BenchmarkLogLevel = "info";
@@ -87,6 +87,7 @@ export function createBench(name: string, options?: BenchOptions): Bench {
 		name,
 		...defaultOptions,
 		...options,
+		concurrency: null,
 	});
 	const warnings = new Map<string, Set<TimerSaturationReason>>();
 	warningsByBench.set(bench, warnings);
@@ -137,24 +138,6 @@ export function addBatchedTask(
 	return task;
 }
 
-export interface BenchmarkTaskReport {
-	name: string;
-	samples: number;
-	latencyMedianNs: number;
-	latencyMeanNs: number;
-	latencyP99Ns: number;
-	rme: number;
-	operationsPerSample: number;
-	warnings: TimerSaturationReason[];
-}
-
-export interface BenchmarkSuiteReport {
-	name: string;
-	iterations: number;
-	warmupIterations: number;
-	tasks: BenchmarkTaskReport[];
-}
-
 const reports: BenchmarkSuiteReport[] = [];
 
 export function runBench(bench: Bench): void {
@@ -184,8 +167,11 @@ export function runBench(bench: Bench): void {
 
 	reports.push({
 		name: bench.name ?? "Unnamed suite",
+		timeMs: bench.time,
 		iterations: bench.iterations,
+		warmupTimeMs: bench.warmupTime,
 		warmupIterations: bench.warmupIterations,
+		timestampProvider: bench.tasks[0]?.result.timestampProviderName ?? "unknown",
 		tasks,
 	});
 
@@ -197,17 +183,20 @@ export function runBench(bench: Bench): void {
 			"Task name": task.name,
 			"Latency avg (ns/op)": `${task.latencyMeanNs.toFixed(2)} ± ${task.rme.toFixed(2)}%`,
 			"Latency med (ns/op)": task.latencyMedianNs.toFixed(2),
-			"Latency p99 (ns/op)": task.latencyP99Ns.toFixed(2),
+			"Sample p99 (ns/op)": task.latencyP99Ns.toFixed(2),
 			Samples: task.samples,
 			"Ops/sample": task.operationsPerSample,
 		}))
 	);
 }
 
-export function createBenchmarkReport(commit: string) {
+export function createBenchmarkReport(commit: string, dirty: boolean): BenchmarkReport {
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
+		kind: "single",
 		commit,
+		dirty,
+		profile: profile === "default" ? "comparison" : profile,
 		timestamp: new Date().toISOString(),
 
 		environment: {

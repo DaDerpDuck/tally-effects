@@ -6,12 +6,8 @@ import {
 	createBenchmarkReport,
 	setBenchmarkLogLevel,
 	setBenchmarkProfile,
-	type BenchmarkLogLevel,
-	type BenchmarkProfile,
 } from "./shared/bench.js";
-
-const validLogLevels = new Set<BenchmarkLogLevel>(["silent", "warn", "info"]);
-const validProfileLevels = new Set<BenchmarkProfile>(["default", "quick", "comparison"]);
+import { parseLogLevel, parseProfile, selectSuites, suites } from "./shared/cli.js";
 
 const { values, positionals } = parseArgs({
 	options: {
@@ -30,45 +26,14 @@ const { values, positionals } = parseArgs({
 	allowPositionals: true,
 });
 
-const requestedLogLevel = values["log-level"];
-if (
-	typeof requestedLogLevel !== "string" ||
-	!validLogLevels.has(requestedLogLevel as BenchmarkLogLevel)
-) {
-	throw new Error(`Invalid log level "${requestedLogLevel}". Expected silent, warn, or info.`);
-}
-
-const requestedProfile = values.profile;
-if (
-	typeof requestedProfile !== "string" ||
-	!validProfileLevels.has(requestedProfile as BenchmarkProfile)
-) {
-	throw new Error(
-		`Invalid benchmark profile "${requestedProfile}". Expected default, quick, or comparison.`
-	);
-}
-
-setBenchmarkLogLevel(requestedLogLevel as BenchmarkLogLevel);
-setBenchmarkProfile(requestedProfile as BenchmarkProfile);
-
-const suites = {
-	duplication: () => import("./micro/duplication.bench.js"),
-	lifecycle: () => import("./micro/lifecycle.bench.js"),
-	resolution: () => import("./micro/resolution.bench.js"),
-	replication: () => import("./micro/replication.bench.js"),
-} as const;
+setBenchmarkLogLevel(parseLogLevel(values["log-level"]));
+setBenchmarkProfile(parseProfile(values.profile));
 
 const output = values.output;
-const requested = positionals.length === 0 ? Object.keys(suites) : positionals;
+const requested = selectSuites(positionals);
 
 for (const suite of requested) {
-	if (!(suite in suites)) {
-		throw new Error(
-			`Unknown benchmark suite "${suite}". Expected one of: ${Object.keys(suites).join(", ")}`
-		);
-	}
-
-	await suites[suite as keyof typeof suites]();
+	await suites[suite]();
 }
 
 if (output) {
@@ -77,8 +42,15 @@ if (output) {
 	}).trim();
 
 	const outputPath = resolve(output);
+	const dirty =
+		execFileSync("git", ["status", "--porcelain", "--untracked-files=normal"], {
+			encoding: "utf8",
+		}).trim().length > 0;
 	await mkdir(dirname(outputPath), { recursive: true });
-	await writeFile(outputPath, `${JSON.stringify(createBenchmarkReport(commit), null, 2)}\n`);
+	await writeFile(
+		outputPath,
+		`${JSON.stringify(createBenchmarkReport(commit, dirty), null, 2)}\n`
+	);
 }
 
 export {};
