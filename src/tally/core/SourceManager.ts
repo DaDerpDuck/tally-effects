@@ -132,19 +132,33 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): PlannedInstance<SourceInstance<TData>> {
-		const priority = options?.priority ?? type.priority;
-		const sourceId = this.counter.next();
-		const provenance = options?.provenance ?? {
-			domain: "local",
-			sequence: sourceId,
+		let sourceOptional: SourceInstance<TData> | undefined;
+		const getInstance = (): SourceInstance<TData> => {
+			if (sourceOptional) return sourceOptional;
+			const priority = options?.priority ?? type.priority;
+			const sourceId = this.counter.next();
+			const provenance = options?.provenance ?? {
+				domain: "local",
+				sequence: sourceId,
+			};
+			const source = new SourceInstance(
+				sourceId,
+				type,
+				priority,
+				options?.key,
+				provenance,
+				data
+			);
+			sourceOptional = source;
+			return source;
 		};
-		const source = new SourceInstance(sourceId, type, priority, options?.key, provenance, data);
 
 		// TODO: Clean this up
 		return {
-			instance: source,
+			get: getInstance,
 			publish: () => {
-				let handles = this.applyModifiers(type, priority, provenance, data);
+				const source = getInstance();
+				let handles = this.applyModifiers(type, source.priority, source.provenance, data);
 				this.sourceModifiersMap.set(source, handles);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
 				this.requestResolve();
@@ -159,7 +173,12 @@ export class SourceManager {
 				source.onUpdate(() => {
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.clearModifierHandles(handles);
-					handles = this.applyModifiers(type, priority, source.provenance, source.get());
+					handles = this.applyModifiers(
+						type,
+						source.priority,
+						source.provenance,
+						source.get()
+					);
 					this.sourceModifiersMap.set(source, handles);
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.requestResolve();
@@ -181,7 +200,7 @@ export class SourceManager {
 				return source;
 			},
 			cancel: () => {
-				source.destroy();
+				sourceOptional?.destroy();
 			},
 		};
 	}

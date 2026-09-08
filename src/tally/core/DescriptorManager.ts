@@ -153,7 +153,7 @@ export class DescriptorManager<TEntity> {
 		);
 
 		return {
-			instance: descriptor,
+			get: () => descriptor,
 			publish: () => {
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
 				const duplicateUnregister = this.duplicationResolver.track(
