@@ -128,6 +128,18 @@ describe("benchmark comparison", () => {
 		expect(renderComparison(report(100), candidate)).toContain("profiles differ");
 	});
 
+	it("suppresses percentage changes when execution transforms differ", () => {
+		const baseline = report(100);
+		const candidate = report(110);
+		baseline.environment.execution = "source-loader";
+		candidate.environment.execution = "tsc-emitted";
+
+		const output = renderComparison(baseline, candidate);
+
+		expect(output).toContain("Runtime or machine metadata differs");
+		expect(output).not.toContain("+10.0%");
+	});
+
 	it("rejects invalid medians instead of generating NaN comparisons", () => {
 		const candidate = report(Number.NaN);
 		expect(() => renderComparison(report(100), candidate)).toThrow(/Invalid or missing median/);

@@ -6,6 +6,13 @@ Run all microbenchmarks and scenarios:
 npm run bench
 ```
 
+Every benchmark command first compiles both the library and harness with `tsc`, then
+runs the emitted JavaScript. This matches the package's production transform and avoids
+including `tsx` development-loader helpers in measured library calls. The generated
+`benchmarks/.dist` directory is ignored by Git.
+Reports record this execution mode as environment metadata, so comparisons suppress
+percentages if one side came from a source loader such as the old `tsx` path.
+
 Use the quick profile while changing workloads, and the comparison profile when
 recording results. `default` is an alias for `comparison`.
 

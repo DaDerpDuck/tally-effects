@@ -202,6 +202,7 @@ export function createBenchmarkReport(commit: string, dirty: boolean): Benchmark
 		environment: {
 			runtime: "node",
 			runtimeVersion: process.versions.node,
+			execution: import.meta.url.endsWith(".ts") ? "source-loader" : "tsc-emitted",
 			platform: platform(),
 			architecture: arch(),
 			cpu: cpus()[0]?.model ?? "unknown",
