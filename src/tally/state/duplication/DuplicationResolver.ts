@@ -5,7 +5,11 @@ import type {
 	DuplicableType,
 	DuplicationCandidate,
 } from "./DuplicationCandidate.js";
-import { DuplicationIndex, type DuplicationEntry } from "./DuplicationIndex.js";
+import {
+	DuplicationIndex,
+	type DuplicationEntry,
+	type LiveDuplicationEntry,
+} from "./DuplicationIndex.js";
 
 export type DuplicationDecision<TInstance extends DuplicationCandidate<TData>, TData> =
 	| { readonly action: "add"; readonly evict: readonly DuplicationEntry[] }
@@ -129,15 +133,20 @@ export class DuplicationResolver {
 
 			const plannedEntry = this.index.plan(this.domainOf(type), key, plannedInstance, score);
 			decision.evict.forEach((entry) => entry.evict());
-			const liveEntry = plannedEntry.commit();
 
-			if (!liveEntry) return { result: "ignored" };
+			try {
+				const liveEntry = plannedEntry.commit();
 
-			return {
-				result: "added",
-				instance: liveEntry.candidate,
-				unregister: () => liveEntry.evict(),
-			};
+				if (!liveEntry) return { result: "ignored" };
+
+				return {
+					result: "added",
+					instance: liveEntry.candidate,
+					unregister: () => liveEntry.evict(),
+				};
+			} finally {
+				plannedEntry.evict();
+			}
 		}
 		throw new Error("Unknown decision action");
 	}

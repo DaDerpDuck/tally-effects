@@ -99,6 +99,7 @@ export class DuplicationIndex {
 				bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
 				bucket.entries.pop();
 				bucket.shrink();
+				plannedEntry.plannedCandidate.cancel();
 			},
 		};
 
