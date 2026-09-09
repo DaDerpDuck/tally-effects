@@ -1,5 +1,6 @@
 export interface PlannedInstance<TInstance> {
 	get(): TInstance;
-	publish(): TInstance | undefined;
+	commit(): TInstance | undefined;
+	publish(instance: TInstance): void;
 	cancel(): void;
 }

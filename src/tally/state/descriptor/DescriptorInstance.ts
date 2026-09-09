@@ -12,24 +12,36 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 > {
 	private readonly updateCallbacks = new Set<(self: this) => void>();
 	private readonly destroyCallbacks = new Set<(self: this) => void>();
+	private readonly derivedSources = new Array<Source>();
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	private triedToBind = false;
 	private destroyed = false;
+	private bindingInProgress = false;
 
 	constructor(
 		public readonly id: DescriptorId,
 		public readonly type: DescriptorType<TDescriptorData, TSourceData>,
 		public readonly key: string | undefined,
 		public readonly provenance: StateProvenance,
-		private readonly bindingProvider: () => DescriptorBinding<TDescriptorData, TSourceData>,
+		private readonly bindingProvider: (
+			derivedSources: Source[]
+		) => DescriptorBinding<TDescriptorData, TSourceData>,
 		private data: TDescriptorData
 	) {}
 
 	tryBind(): DescriptorBinding<TDescriptorData, TSourceData> | undefined {
 		if (this.triedToBind) return this.binding;
 		this.triedToBind = true;
-		this.binding = this.bindingProvider();
-		return this.binding;
+		this.bindingInProgress = true;
+		try {
+			const binding = this.bindingProvider(this.derivedSources);
+			this.binding = binding;
+			// reentrancy may have caused this descriptor to be destroyed
+			return this.destroyed ? undefined : binding;
+		} finally {
+			this.bindingInProgress = false;
+			if (this.destroyed) this.cleanupBinding();
+		}
 	}
 
 	set(data: TDescriptorData) {
@@ -70,13 +82,19 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 	destroy() {
 		if (this.destroyed) return;
 		this.destroyed = true;
-		this.binding?.destroy();
 		this.destroyCallbacks.forEach((callback) => callback(this));
 		this.updateCallbacks.clear();
 		this.destroyCallbacks.clear();
+		if (!this.bindingInProgress) this.cleanupBinding();
 	}
 
 	private assertAlive() {
 		if (this.destroyed) throw new Error("Descriptor has been destroyed");
+	}
+
+	private cleanupBinding() {
+		this.binding?.destroy();
+		this.derivedSources.forEach((source) => source.destroy());
+		this.derivedSources.length = 0;
 	}
 }
