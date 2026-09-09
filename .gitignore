@@ -3,3 +3,4 @@ dist/
 coverage/
 benchmark-results.json
 benchmarks/results/
+benchmarks/.dist/
