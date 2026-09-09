@@ -55,7 +55,7 @@ jobs:
       - name: Compare
         working-directory: candidate
         run: >
-          node --import tsx benchmarks/compare.ts
+          npm run bench:compare --
           "${{ github.workspace }}/results/baseline.json"
           "${{ github.workspace }}/results/candidate.json"
           "${{ github.workspace }}/results/comparison.md"
