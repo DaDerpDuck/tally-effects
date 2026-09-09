@@ -80,12 +80,12 @@ export class DuplicationIndex {
 					evict() {
 						if (!liveEntry.active) return;
 						liveEntry.active = false;
-						liveEntry.candidate.destroy();
 						const index = bucket.entries.findIndex((e) => e === liveEntry);
 						if (index < 0) return;
 						bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
 						bucket.entries.pop();
 						bucket.shrink();
+						liveEntry.candidate.destroy();
 					},
 				};
 				bucket.entries[index] = liveEntry;
