@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { parseLogLevel, parseProfile, selectSuites } from "./shared/cli.js";
 import { aggregateReports, type BenchmarkReport } from "./shared/report.js";
@@ -29,6 +30,7 @@ if (runs < 3 && logLevel !== "silent") {
 
 const temporaryDirectory = await mkdtemp(join(tmpdir(), "tally-benchmarks-"));
 const reports: BenchmarkReport[] = [];
+const runEntryPoint = fileURLToPath(new URL("./run.js", import.meta.url));
 
 try {
 	for (let run = 1; run <= runs; run++) {
@@ -38,9 +40,7 @@ try {
 		execFileSync(
 			process.execPath,
 			[
-				"--import",
-				"tsx",
-				"benchmarks/run.ts",
+				runEntryPoint,
 				...requested,
 				"--output",
 				runOutput,
