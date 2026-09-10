@@ -2,6 +2,26 @@ name: Benchmarks
 
 on:
   workflow_dispatch:
+    inputs:
+      baseline_ref:
+        description: Baseline branch, tag, or commit
+        type: string
+        default: main
+        required: true
+      runs:
+        description: Runs per revision (alternating which revision runs first)
+        type: number
+        default: 7
+        required: true
+      profile:
+        description: Benchmark profile
+        type: choice
+        options: [comparison, quick]
+        default: comparison
+      suites:
+        description: Space-separated suite names (empty runs all; scenarios is supported)
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -9,12 +29,13 @@ permissions:
 jobs:
   compare:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout baseline
         uses: actions/checkout@v6
         with:
-          ref: "main"
+          ref: ${{ inputs.baseline_ref }}
           path: baseline
 
       - name: Checkout candidate
@@ -40,32 +61,28 @@ jobs:
         working-directory: candidate
         run: npm ci
 
-      - name: Run baseline
-        working-directory: baseline
-        run: >
-          npm run bench:repeat --
-          --runs 7 --output "${{ github.workspace }}/results/baseline.json"
-
-      - name: Run candidate
+      - name: Run interleaved comparison
         working-directory: candidate
-        run: >
-          npm run bench:repeat --
-          --runs 7 --output "${{ github.workspace }}/results/candidate.json"
-
-      - name: Compare
-        working-directory: candidate
-        run: >
-          npm run bench:compare --
-          "${{ github.workspace }}/results/baseline.json"
-          "${{ github.workspace }}/results/candidate.json"
-          "${{ github.workspace }}/results/comparison.md"
+        env:
+          BENCH_RUNS: ${{ inputs.runs }}
+          BENCH_PROFILE: ${{ inputs.profile }}
+          BENCH_SUITES: ${{ inputs.suites }}
+        run: |
+          read -r -a selected_suites <<< "$BENCH_SUITES"
+          npm run bench:interleave -- \
+            --baseline "$GITHUB_WORKSPACE/baseline" \
+            --candidate "$GITHUB_WORKSPACE/candidate" \
+            --runs "$BENCH_RUNS" --profile "$BENCH_PROFILE" --log-level warn \
+            --output "$GITHUB_WORKSPACE/results" "${selected_suites[@]}"
 
       - name: Add workflow summary
         run: cat results/comparison.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload results
+        if: always()
         uses: actions/upload-artifact@v7
         with:
           name: benchmark-results
           path: results
+          if-no-files-found: ignore
           retention-days: 90

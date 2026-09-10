@@ -6,12 +6,12 @@
   "author": "TimScript",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DaDerpDuck/tally"
+    "url": "git+https://github.com/DaDerpDuck/tally-effects"
   },
   "bugs": {
-    "url": "https://github.com/DaDerpDuck/tally/issues"
+    "url": "https://github.com/DaDerpDuck/tally-effects/issues"
   },
-  "homepage": "https://github.com/DaDerpDuck/tally#readme",
+  "homepage": "https://github.com/DaDerpDuck/tally-effects#readme",
   "type": "module",
   "exports": {
     ".": {
@@ -48,6 +48,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typetest": "tsc --noEmit && tsc -p benchmarks/tsconfig.json",
     "bench:build": "tsc -p benchmarks/tsconfig.build.json",
+    "bench:interleave": "npm run bench:build --silent && node benchmarks/.dist/benchmarks/interleave.js",
     "bench": "npm run bench:build --silent && node benchmarks/.dist/benchmarks/run.js",
     "bench:repeat": "npm run bench:build --silent && node benchmarks/.dist/benchmarks/repeat.js",
     "bench:compare": "npm run bench:build --silent && node benchmarks/.dist/benchmarks/compare.js",
@@ -70,8 +71,6 @@
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.9.6",
     "tinybench": "^6.1.4",
-    "ts-node": "^10.9.2",
-    "tsconfig-paths": "^4.2.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.67.0",
     "vitest": "^4.1.10"

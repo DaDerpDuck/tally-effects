@@ -137,9 +137,58 @@ Tinybench saturation warnings need investigation before interpreting small chang
 Increasing work per sample helps the timer distinguish durations. Longer time windows
 and repeated processes help sampling, but cannot eliminate JIT, GC, thermal, or system
 load differences. Keep runtime, hardware, power mode, and background load comparable.
-Run baseline and candidate sequentially; alternate their order for serious comparisons.
+The interleaved runner below alternates their order for comparisons.
 
-Results are informational, with no CI performance gate. The manual benchmark workflow
-requires a baseline revision that already contains the harness; merge the infrastructure
-before using `main` as that baseline. Workload changes can also require a new baseline,
-even when a task's label remains the same.
+## Interleaving two revisions
+
+Interleaving is practical for these synchronous CPU workloads. Each round runs one
+fresh Node process per revision; odd rounds run baseline then candidate, even rounds
+candidate then baseline. With `--runs 7`, each revision runs seven times (14 processes
+in total). This distributes gradual thermal/load drift across both revisions without
+introducing concurrent CPU contention. It cannot eliminate noise or guarantee an
+unbiased result; an odd number of rounds has one extra baseline-first round.
+
+Start with two separate checkouts and install dependencies in each. Run the command
+from the checkout that contains this driver:
+
+```sh
+npm run bench:interleave -- --baseline ../tally-baseline --candidate . --runs 7
+npm run bench:interleave -- --baseline ../tally-baseline scenarios --profile quick --runs 3
+```
+
+Both revisions' library and harness are compiled before measurement using the driver's
+installed TypeScript compiler and each revision's root compiler settings. Each revision
+keeps its own workloads and dependencies. No compilation or dependency installation runs
+between measured processes. This also supports the current pre-migration `main`: it needs
+`benchmarks/run.ts` with schema-2 reporting, but does not need a `bench:build` script.
+There is no fallback to `tsx`. Temporary builds go under each checkout's ignored
+`benchmarks/results/` and are removed afterward.
+
+By default, results go into a unique directory named
+`benchmarks/results/interleaved-<baseline>-vs-<candidate>-<suffix>/` in the candidate
+checkout. `--output <directory>` accepts a new or empty directory. It contains:
+
+- `baseline.json` and `candidate.json`: independent per-task aggregates;
+- `comparison.md`: the existing comparison, including noise diagnostics;
+- `runs/`: every individual report, identified by side and round;
+- `manifest.json`: revisions, compiler, selected suites, execution order, timestamps,
+  and completion/failure status.
+
+A failed build/run stops the comparison and keeps completed raw reports for debugging.
+Existing output directories must be empty so stale success reports cannot be mistaken for
+a new result. Keep source files unchanged throughout the run: compilation happens before
+sampling, and the driver rejects revision changes. As with ordinary benchmarks, uncommitted
+changes are identified by a dirty flag, not by a content hash.
+
+Both sides record `tsc-emitted` execution plus the shared compiler version, including when
+the baseline's older reporter lacks that metadata. Sampling remains per task; the comparison
+uses the median of each task's per-process medians. It is **not** a paired significance test
+or bootstrap confidence interval. Raw round data is retained for future paired analysis.
+Use matching benchmark definitions when interpreting percentages; equal task labels alone
+do not prove that two revisions perform identical work.
+
+The manual GitHub workflow now uses this runner. Select a baseline ref, runs per revision
+(default seven), profile, and optional suite filter; the selected workflow revision is the
+candidate. Both checkouts are installed first, then all processes run sequentially. The
+workflow publishes the Markdown summary and uploads raw reports and the manifest, including
+partial results on failure. Results remain informational, with no performance threshold gate.
