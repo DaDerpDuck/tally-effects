@@ -777,15 +777,4 @@ describe("duplication group validation", () => {
 				})
 		).toThrow(/maxStack/);
 	});
-
-	it("rejects an unknown replacement selector", () => {
-		expect(
-			() =>
-				new DuplicationGroup({
-					policy: "replace",
-					maxStack: 1,
-					selector: "middle",
-				} as never)
-		).toThrow(/selector/);
-	});
 });

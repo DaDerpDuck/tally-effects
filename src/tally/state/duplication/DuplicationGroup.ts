@@ -37,9 +37,8 @@ export class DuplicationGroup {
 		this.policy = definition.policy;
 		this.maxStack = definition.maxStack ?? 1;
 		this.selector = definition.selector || "oldest";
-		if (!Number.isSafeInteger(this.maxStack))
-			throw new Error("maxStack must be a safe integer");
-		if (this.maxStack < 1) throw new Error("maxStack must be a positive integer");
+		if (!Number.isSafeInteger(this.maxStack) || this.maxStack < 0)
+			throw new Error("maxStack must be a nonnegative safe integer");
 	}
 
 	member<T>(options: Partial<DuplicationGroupOptions<T>> = {}): DuplicationGroupMember<T> {
