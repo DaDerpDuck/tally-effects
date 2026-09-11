@@ -98,7 +98,7 @@ export class DuplicationResolver {
 							(selector === "oldest" && conflict.order < order) ||
 							(selector === "newest" && conflict.order >= order)
 						) {
-							rank = conflict.order;
+							rank = conflict.score();
 							order = conflict.order;
 							selectedCandidate = conflict;
 						} else {
