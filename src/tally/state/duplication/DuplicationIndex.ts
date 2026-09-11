@@ -71,7 +71,7 @@ export class DuplicationIndex {
 				const index = bucket.entries.findIndex((e) => e === plannedEntry);
 				if (index < 0) return;
 				const liveCandidate = plannedEntry.plannedCandidate.commit();
-				if (!liveCandidate) return; // publish rejected for whatever reason
+				if (!liveCandidate) return; // commit rejected for whatever reason
 				const liveEntry: LiveDuplicationEntry<TInstance> = {
 					kind: "live",
 					candidate: liveCandidate,
@@ -79,7 +79,6 @@ export class DuplicationIndex {
 					active: true,
 					score: plannedEntry.score,
 					evict() {
-						if (!liveEntry.active) return;
 						liveEntry.active = false;
 						const index = bucket.entries.findIndex((e) => e === liveEntry);
 						if (index < 0) return;
@@ -96,7 +95,6 @@ export class DuplicationIndex {
 				return liveEntry;
 			},
 			evict() {
-				if (!plannedEntry.active) return;
 				plannedEntry.active = false;
 				const index = bucket.entries.findIndex((e) => e === plannedEntry);
 				if (index < 0) return;
