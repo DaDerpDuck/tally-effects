@@ -264,6 +264,63 @@ describe("DuplicationGroup replacement selection", () => {
 		expect(agent.getSources(SourceType)).toEqual(new Set([stronger]));
 		expect(agent.getSources(SourceType)).not.toContain(first);
 	});
+
+	it("passes the newest candidate's rank to replaceIf", () => {
+		const replaceIf = vi.fn(
+			(existingRank: number, incomingRank: number) => incomingRank > existingRank
+		);
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 2,
+			selector: "newest",
+		});
+		const SourceType = defineSourceType<number>({
+			name: "ConditionalNewestGroupReplacementSource",
+			priority: 100,
+			duplication: group.member({
+				rank: (value) => value,
+				replaceIf,
+			}),
+			contribute: () => [],
+		});
+		const agent = new AgentState(undefined);
+		const oldest = agent.addSource(SourceType, 100)!;
+		const newest = agent.addSource(SourceType, 50)!;
+
+		expect(agent.addSource(SourceType, 20)).toBeUndefined();
+		expect(replaceIf).toHaveBeenLastCalledWith(50, 20);
+		expect(agent.getSources(SourceType)).toEqual(new Set([oldest, newest]));
+	});
+
+	it("passes the oldest candidate's rank to replaceIf after swap removal reorders a bucket", () => {
+		const replaceIf = vi.fn(
+			(existingRank: number, incomingRank: number) => incomingRank > existingRank
+		);
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 3,
+			selector: "oldest",
+		});
+		const SourceType = defineSourceType<number>({
+			name: "ConditionalReorderedOldestGroupReplacementSource",
+			priority: 100,
+			duplication: group.member({
+				rank: (value) => value,
+				replaceIf,
+			}),
+			contribute: () => [],
+		});
+		const agent = new AgentState(undefined);
+		const removed = agent.addSource(SourceType, 100)!;
+		const oldest = agent.addSource(SourceType, 50)!;
+		const middle = agent.addSource(SourceType, 30)!;
+		removed.destroy();
+		const newest = agent.addSource(SourceType, 40)!;
+
+		expect(agent.addSource(SourceType, 20)).toBeUndefined();
+		expect(replaceIf).toHaveBeenLastCalledWith(50, 20);
+		expect(agent.getSources(SourceType)).toEqual(new Set([oldest, middle, newest]));
+	});
 });
 
 describe("heterogeneous DuplicationGroup lifecycle", () => {
