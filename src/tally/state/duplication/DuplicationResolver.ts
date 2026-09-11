@@ -161,8 +161,13 @@ export class DuplicationResolver {
 					instance: liveEntry.candidate,
 					unregister: () => liveEntry.evict(),
 					publish: () => {
-						afterCommitCallbacks.forEach((callback) => callback(liveEntry.candidate));
-						liveEntry.publish();
+						try {
+							afterCommitCallbacks.forEach((callback) => callback(liveEntry.candidate));
+							liveEntry.publish();
+						} catch(e) {
+							liveEntry.evict();
+							throw e;
+						}
 					},
 				};
 			} finally {
