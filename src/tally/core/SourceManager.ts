@@ -148,6 +148,7 @@ export class SourceManager {
 
 				getOrInsertComputed(this.sourceMap, type, () => new Set()).add(source);
 
+				let isDestroyed = false;
 				source.onUpdate(() => {
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.clearModifierHandles(handles);
@@ -157,7 +158,8 @@ export class SourceManager {
 						source.provenance,
 						source.get()
 					);
-
+					// reentrant code may have destroyed this source
+					if (isDestroyed) return;
 					handles = nextHandles;
 					this.sourceModifiersMap.set(source, handles);
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
@@ -166,6 +168,7 @@ export class SourceManager {
 				});
 
 				source.onDestroy(() => {
+					isDestroyed = true;
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.clearModifierHandles(handles);
 					this.sourceModifiersMap.delete(source);
