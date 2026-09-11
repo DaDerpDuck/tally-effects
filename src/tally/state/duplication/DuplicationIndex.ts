@@ -1,48 +1,28 @@
-import type { Disconnect } from "../../util/Disconnect.js";
 import { getOrInsertComputed } from "../../util/GetOrInsert.js";
 import type { PlannedInstance } from "../PlannedInstance.js";
 import type { DuplicationCandidate } from "./DuplicationCandidate.js";
-
-export type PlannedDuplicationEntry<TInstance extends DuplicationCandidate> = {
-	readonly kind: "pending";
-	readonly plannedCandidate: PlannedInstance<TInstance>;
-	readonly candidate: TInstance;
-	readonly order: number;
-	active: boolean;
-	readonly score: () => number;
-	readonly evict: () => void;
-	readonly commit: () => LiveDuplicationEntry<TInstance> | undefined;
-	readonly afterCommit: (callback: (instance: TInstance) => void) => void;
-};
-
-export type LiveDuplicationEntry<TInstance extends DuplicationCandidate> = {
-	readonly kind: "live";
-	readonly candidate: TInstance;
-	readonly order: number;
-	active: boolean;
-	readonly score: () => number;
-	readonly evict: () => void;
-	readonly publish: () => void;
-};
-
-export type DuplicationEntry<TInstance extends DuplicationCandidate = DuplicationCandidate> =
-	PlannedDuplicationEntry<TInstance> | LiveDuplicationEntry<TInstance>;
+import type {
+	AnyDuplicationEntry,
+	DuplicationEntry,
+	LiveDuplicationEntryHandle,
+	PlannedDuplicationEntryHandle,
+} from "./DuplicationEntry.js";
 
 interface DuplicationBucket {
-	readonly entries: DuplicationEntry[];
+	readonly entries: AnyDuplicationEntry[];
 	shrink(): void;
 }
 
 export class DuplicationIndex {
-	private static readonly EmptyArray = new Array<DuplicationEntry>(0);
+	private static readonly EmptyArray = new Array<AnyDuplicationEntry>(0);
 	private order = 0;
 
 	private readonly duplicationStruct = {
-		unkeyed: new Map<object, DuplicationEntry[]>(),
-		keyed: new Map<object, Map<string, DuplicationEntry[]>>(),
+		unkeyed: new Map<object, AnyDuplicationEntry[]>(),
+		keyed: new Map<object, Map<string, AnyDuplicationEntry[]>>(),
 	} as const;
 
-	get(domain: object, key: string | undefined): readonly DuplicationEntry[] {
+	get(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
 		if (key === undefined)
 			return this.duplicationStruct.unkeyed.get(domain) ?? DuplicationIndex.EmptyArray;
 		else
@@ -56,65 +36,82 @@ export class DuplicationIndex {
 		key: string | undefined,
 		plannedInstance: PlannedInstance<TInstance>,
 		score?: () => number
-	): PlannedDuplicationEntry<TInstance> {
+	): PlannedDuplicationEntryHandle<TInstance> {
 		const bucket = this.getOrCreateBucket(domain, key);
-
-		const afterCommitCallbacks = new Array<(instance: TInstance) => void>();
-
-		// TODO: Make stable entries (also this code is getting cursed)
-		const plannedEntry: PlannedDuplicationEntry<TInstance> = {
-			kind: "pending",
-			plannedCandidate: plannedInstance,
-			candidate: plannedInstance.get(),
-			order: this.order++,
-			active: true,
-			score: score ?? (() => plannedEntry.order),
-			commit() {
-				if (!plannedEntry.active) return;
-				plannedEntry.active = false;
-				const index = bucket.entries.findIndex((e) => e === plannedEntry);
-				if (index < 0) return;
-				const liveCandidate = plannedEntry.plannedCandidate.commit();
-				if (!liveCandidate) return; // commit rejected for whatever reason
-				afterCommitCallbacks.forEach((callback) => callback(liveCandidate));
-				const liveEntry: LiveDuplicationEntry<TInstance> = {
-					kind: "live",
-					candidate: liveCandidate,
-					order: plannedEntry.order,
-					active: true,
-					score: plannedEntry.score,
-					evict() {
-						liveEntry.active = false;
-						const index = bucket.entries.findIndex((e) => e === liveEntry);
-						if (index < 0) return;
-						bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
-						bucket.entries.pop();
-						bucket.shrink();
-						liveEntry.candidate.destroy();
-					},
-					publish() {
-						plannedEntry.plannedCandidate.publish(liveEntry.candidate);
-					},
-				};
-				bucket.entries[index] = liveEntry;
-				return liveEntry;
+		const entryOrder = this.order++;
+		const stableEntry: DuplicationEntry<TInstance> = {
+			order: entryOrder,
+			score: score ?? (() => entryOrder),
+			state: {
+				kind: "pending",
+				planned: plannedInstance,
+				afterCommit: [],
 			},
+			active: true,
+			committed: false,
+
 			evict() {
-				plannedEntry.active = false;
-				const index = bucket.entries.findIndex((e) => e === plannedEntry);
+				if (!this.active) return;
+				this.active = false;
+				const index = bucket.entries.findIndex((e) => Object.is(e, this));
 				if (index < 0) return;
 				bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
 				bucket.entries.pop();
 				bucket.shrink();
-				plannedEntry.plannedCandidate.cancel();
-			},
-			afterCommit(callback) {
-				afterCommitCallbacks.push(callback);
+				if (this.state.kind === "pending") this.state.planned.cancel();
+				else this.state.candidate.destroy();
 			},
 		};
 
-		bucket.entries.push(plannedEntry);
-		return plannedEntry;
+		const plannedHandle: PlannedDuplicationEntryHandle<TInstance> = {
+			kind: "pending",
+			entry: stableEntry,
+			commit() {
+				if (
+					!this.entry.active ||
+					this.entry.committed ||
+					this.entry.state.kind !== "pending"
+				)
+					return;
+				const liveCandidate = this.entry.state.planned.commit();
+				if (!liveCandidate) return;
+
+				const publish = this.entry.state.planned.publish;
+				const afterCommitCallbacks = this.entry.state.afterCommit;
+
+				this.entry.state = {
+					kind: "live",
+					candidate: liveCandidate,
+				};
+				this.entry.committed = true;
+				afterCommitCallbacks.forEach((callback) => callback(liveCandidate));
+
+				const liveHandle: LiveDuplicationEntryHandle<TInstance> = {
+					kind: "live",
+					entry: stableEntry,
+					candidate: liveCandidate,
+					publish() {
+						publish(liveCandidate);
+					},
+					evict() {
+						this.entry.evict();
+					},
+				};
+
+				return liveHandle;
+			},
+			afterCommit(callback) {
+				if (this.entry.state.kind !== "pending") return;
+				this.entry.state.afterCommit.push(callback);
+			},
+			evict() {
+				if (this.entry.committed) return;
+				this.entry.evict();
+			},
+		};
+
+		bucket.entries.push(stableEntry);
+		return plannedHandle;
 	}
 
 	private getOrCreateBucket(domain: object, key: string | undefined): DuplicationBucket {

@@ -1,22 +1,17 @@
-import type { Disconnect } from "../../util/Disconnect.js";
 import type { PlannedInstance } from "../PlannedInstance.js";
 import type {
 	AnyDuplicableType,
 	DuplicableType,
 	DuplicationCandidate,
 } from "./DuplicationCandidate.js";
-import {
-	DuplicationIndex,
-	type DuplicationEntry,
-	type LiveDuplicationEntry,
-} from "./DuplicationIndex.js";
+import type { AnyDuplicationEntry, DuplicationEntry } from "./DuplicationEntry.js";
+import { DuplicationIndex } from "./DuplicationIndex.js";
 
-export type DuplicationDecision<TInstance extends DuplicationCandidate<TData>, TData> =
-	| { readonly action: "add"; readonly evict: readonly DuplicationEntry[] }
+export type DuplicationDecision =
+	| { readonly action: "add"; readonly evict: readonly AnyDuplicationEntry[] }
 	| { readonly action: "ignore" }
 	| {
 			readonly action: "reconcile";
-			readonly target: TInstance;
 			reconcile(): void;
 	  };
 
@@ -35,7 +30,7 @@ export class DuplicationResolver {
 		type: DuplicableType<TInstance, TData>,
 		data: TData,
 		key: string | undefined
-	): DuplicationDecision<TInstance, TData> {
+	): DuplicationDecision {
 		const policy = type.duplication;
 		if (policy.kind === "allow") return DuplicationResolver.DecideAddStructure;
 
@@ -60,11 +55,17 @@ export class DuplicationResolver {
 				const entry = conflicts.values().next().value! as DuplicationEntry<TInstance>;
 				return {
 					action: "reconcile",
-					target: entry.candidate,
 					reconcile: () => {
-						if (entry.kind === "pending")
-							entry.afterCommit(() => policy.reconcile(entry.candidate, data));
-						else policy.reconcile(entry.candidate, data);
+						if (entry.state.kind === "pending")
+							entry.state.afterCommit.push(() =>
+								policy.reconcile(
+									entry.state.kind === "pending"
+										? entry.state.planned.get()
+										: entry.state.candidate,
+									data
+								)
+							);
+						else policy.reconcile(entry.state.candidate, data);
 					},
 				};
 			} else return DuplicationResolver.DecideAddStructure;
