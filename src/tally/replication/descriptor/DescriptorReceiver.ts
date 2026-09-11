@@ -95,7 +95,13 @@ export class DescriptorReceiver implements ReplicationReceiver {
 		const descriptor = this.agent.addDescriptor(
 			descriptorType as DescriptorType<unknown, unknown>,
 			descriptorType.replication.deserialize(replicatedDescriptor.data),
-			{ provenance: { domain: "replicated", sequence: replicatedDescriptor.id } }
+			{
+				key: replicatedDescriptor.key,
+				provenance: {
+					domain: "replicated",
+					sequence: replicatedDescriptor.id,
+				},
+			}
 		);
 		if (!descriptor)
 			throw new Error(

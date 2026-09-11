@@ -327,21 +327,39 @@ describe("tally context replication emission", () => {
 				target: "source",
 				event: {
 					kind: "added",
-					source: { id: 0, type: "PropertySource", priority: 100, data: 5 },
+					source: {
+						id: 0,
+						type: "PropertySource",
+						priority: 100,
+						key: undefined,
+						data: 5,
+					},
 				},
 			},
 			{
 				target: "source",
 				event: {
 					kind: "added",
-					source: { id: 1, type: "PropertySource", priority: 200, data: 6 },
+					source: {
+						id: 1,
+						type: "PropertySource",
+						priority: 200,
+						key: undefined,
+						data: 6,
+					},
 				},
 			},
 			{
 				target: "source",
 				event: {
 					kind: "added",
-					source: { id: 2, type: "PropertySource", priority: 300, data: 7 },
+					source: {
+						id: 2,
+						type: "PropertySource",
+						priority: 300,
+						key: undefined,
+						data: 7,
+					},
 				},
 			},
 		] satisfies ReplicationEvent[]);

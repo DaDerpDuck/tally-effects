@@ -2,7 +2,12 @@ import type {
 	AnyReplicationDefinition,
 	ReplicationDefinition,
 } from "../../replication/ReplicationDefinition.js";
-import type { DuplicatePolicy } from "../DuplicatePolicy.js";
+import {
+	resolveDuplicatePolicy,
+	type DuplicatePolicy,
+	type ResolvedDuplicatePolicy,
+} from "../duplication/DuplicatePolicy.js";
+import type { AnyDuplicableType, DuplicableType } from "../duplication/DuplicationCandidate.js";
 import { registerNamed, type Registrable, type Registry } from "../Registrable.js";
 import type { SourceType } from "../source/SourceType.js";
 import type { StateTypeDefinition } from "../StateTypeDefinition.js";
@@ -34,18 +39,21 @@ export interface DescriptorTypeDefinition<
 	readonly replication?: ReplicationDefinition<TDescriptorData> | undefined;
 }
 
-export interface AnyDescriptorType {
+export interface AnyDescriptorType extends AnyDuplicableType {
 	readonly name: string;
-	readonly duplication: DuplicatePolicy<AnyDescriptor, unknown>;
+	readonly duplication: ResolvedDuplicatePolicy<AnyDescriptor, unknown>;
 	readonly replication?: AnyReplicationDefinition | undefined;
 	dataEquals(a: unknown, b: unknown): boolean;
 }
 
 export class DescriptorType<TDescriptorData, TSourceData>
-	implements AnyDescriptorType, Registrable
+	implements
+		AnyDescriptorType,
+		Registrable,
+		DuplicableType<Descriptor<TDescriptorData, TSourceData>, TDescriptorData>
 {
 	public readonly name: string;
-	public readonly duplication: DuplicatePolicy<
+	public readonly duplication: ResolvedDuplicatePolicy<
 		Descriptor<TDescriptorData, TSourceData>,
 		TDescriptorData
 	>;
@@ -56,7 +64,7 @@ export class DescriptorType<TDescriptorData, TSourceData>
 		private readonly definition: DescriptorTypeDefinition<TDescriptorData, TSourceData>
 	) {
 		this.name = definition.name;
-		this.duplication = definition.duplication ?? { policy: "allow" };
+		this.duplication = resolveDuplicatePolicy(definition.duplication ?? { policy: "allow" });
 		this.source = definition.source;
 		this.replication = definition.replication;
 	}

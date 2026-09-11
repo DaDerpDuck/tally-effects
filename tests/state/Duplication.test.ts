@@ -125,6 +125,16 @@ describe("source duplication policies", () => {
 		expect(changed).toHaveBeenNthCalledWith(2, 10, 1);
 	});
 
+	it("preserves the stack limit when an eviction callback adds a duplicate", () => {
+		const { agent, SourceType } = createSourceFixture({ policy: "replace" });
+		const first = agent.addSource(SourceType, 1)!;
+		first.onDestroy(() => agent.addSource(SourceType, 2));
+
+		agent.addSource(SourceType, 3);
+
+		expect(agent.getSources(SourceType).size).toBe(1);
+	});
+
 	it("reconciles into the existing source", () => {
 		const reconcile = vi.fn((existing: Source<number>, incoming: number) =>
 			existing.set(incoming)

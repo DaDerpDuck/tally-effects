@@ -12,6 +12,7 @@ export class SourceInstance<TData> implements Source<TData> {
 		public readonly id: number,
 		public readonly type: SourceType<TData>,
 		public readonly priority: number,
+		public readonly key: string | undefined,
 		public readonly provenance: StateProvenance,
 		private data: TData
 	) {}
