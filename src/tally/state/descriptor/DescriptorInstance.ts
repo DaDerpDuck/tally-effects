@@ -82,10 +82,11 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 	destroy() {
 		if (this.destroyed) return;
 		this.destroyed = true;
+		// Binding cleanup must happen before removal observer
+		if (!this.bindingInProgress) this.cleanupBinding();
 		this.destroyCallbacks.forEach((callback) => callback(this));
 		this.updateCallbacks.clear();
 		this.destroyCallbacks.clear();
-		if (!this.bindingInProgress) this.cleanupBinding();
 	}
 
 	private assertAlive() {
