@@ -93,11 +93,15 @@ const Poisoned = defineSourceType<PoisonData>({
 
 ### Priorities and Deterministic Ordering
 
-Modifiers are resolved deterministically. Priority is considered first, followed by provenance ordering and Source sequence. The result does not depend on collection iteration order or the local order in which replicated state arrived.
+Modifiers are resolved deterministically using a lexicographic ordering key: Source
+priority, ordering domain (authoritative before local), provenance sequence, and the
+Modifier's contribution index within its Source. The result does not depend on
+collection iteration order or the local order in which replicated state arrived.
 
 ### Duplicate Policies
 
-A duplicate policy determines what happens when a source is added when a matching type already exists within the agent. The policies are listed below:
+A duplicate policy determines what happens when a Source or Descriptor is added in a
+conflicting duplication bucket. The policies are listed below:
 
 | Policy | Behavior |
 | ------ | -------- |
@@ -105,6 +109,42 @@ A duplicate policy determines what happens when a source is added when a matchin
 | `ignore` | reject the new instance |
 | `replace` | destroy the old instance and create the new one |
 | `reconcile` | let application code merge incoming data into the existing instance |
+
+By default, a type is its own duplication domain and all of its instances use the
+unkeyed bucket. Pass a string `key` to partition that domain. Different keys do not
+conflict, while `undefined` remains the unkeyed bucket:
+
+```ts
+const first = agent.addSource(Shield, { amount: 10 }, { key: "left-hand" });
+const second = agent.addSource(Shield, { amount: 20 }, { key: "right-hand" });
+```
+
+Use a `DuplicationGroup` when different SourceTypes or DescriptorTypes should share a
+domain. A group can set a stack limit and, for replacement, choose the `oldest`,
+`newest`, `lowest`, or `highest` candidate. Each member supplies its own rank function,
+so heterogeneous data remains type-safe:
+
+```ts
+const damageOverTime = defineDuplicationGroup({
+    policy: "replace",
+    maxStack: 3,
+    selector: "lowest",
+});
+
+const Burning = defineSourceType<number>({
+    name: "Burning",
+    priority: 100,
+    duplication: damageOverTime.member({ rank: (damage) => damage }),
+    contribute: (damage) => [ HealthRegen.add(-damage) ],
+});
+```
+
+Admission is synchronous and reentrant. An incoming candidate participates in conflicts
+while it is still pending, so callbacks that immediately add, update, or destroy state see
+a consistent duplication bucket. Replacement decisions are revalidated after preparation
+and before any candidate is evicted. Ignored and reconciled additions return `undefined`
+because they do not create a new instance. A replacement may also return `undefined` if
+reentrant lifecycle work cancels it before publication.
 
 ### Descriptors
 
@@ -173,6 +213,10 @@ Descriptor handlers should be registered before creating AgentStates.
 Tally emits replication state/events, but does not own your networking layer. Developers are expected to implement how to transport the data.
 
 Tally does offer Receivers for accepting replication events.
+
+When replication is enabled, Source and Descriptor duplication keys are serialized and
+reconstructed with their state. Payloads without a key are treated as belonging to the
+unkeyed bucket, allowing pre-key snapshots and events to remain usable.
 
 The replication flow looks like:
 ```

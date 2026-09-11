@@ -60,12 +60,14 @@ Port the contract and observable behavior, not TypeScript implementation details
 | `Modifier` | A typed contribution targeting one property | Registration, timing, or effect lifecycle |
 | `ModifierRegistry` | Canonical ordered/indexed storage for active modifiers | Public gameplay policy |
 | `SourceType` | Immutable contribution, priority, duplication, equality, and optional replication definitions | Runtime instance state |
-| `Source` | Runtime data, provenance, identity, updates, and destruction | Global configuration or transport |
+| `Source` | Public instance identity and delegated data, update, callback, and destruction operations | Admission coordination, manager storage, or direct ownership of mutable lifecycle machinery |
+| `SourceRuntime` | Mutable Source data, contributions, modifier handles, callbacks, and admission/live/destroyed lifecycle ownership | Duplication policy decisions or manager collections |
 | `DescriptorType` | Immutable portable descriptor shape, output source type, equality, duplication, and optional replication definitions | Runtime-specific behavior |
-| `Descriptor` | Runtime descriptor data and its binding lifecycle | Networking |
+| `Descriptor` | Public instance identity and delegated data, binding access, update, callback, and destruction operations | Admission coordination, manager storage, or direct ownership of mutable lifecycle machinery |
+| `DescriptorRuntime` | Mutable Descriptor data, binding and derived-source cleanup, callbacks, and admission/live/destroyed lifecycle ownership | Duplication policy decisions, networking, or manager collections |
 | `DescriptorHandler` / `DescriptorBinding` | Translate portable descriptor data into local runtime behavior and maintain the derived source | Authoritative replication policy |
 | `AgentState` | Per-entity facade over sources, descriptors, property reads, batching, and lifecycle observation | Shared application configuration |
-| `SourceManager` / `DescriptorManager` | Concrete publication, update, removal, and callback mechanics for their instance kind | Independent copies of shared admission policy |
+| `SourceManager` / `DescriptorManager` | Storage, modifier/batching, and event adapters used by their instance runtimes | Instance lifecycle ownership or independent copies of shared admission policy |
 | `TallyContext` | Optional registries, handler configuration, cross-agent observation, and replication coordination | Being required to use definitions or `AgentState` |
 | Replication receivers | Apply snapshots/events to local agent state | Transporting packets |
 
@@ -73,9 +75,11 @@ Prefer composition over inheritance. Property implementations intentionally comp
 definition behavior and implement public interfaces directly. New shared behavior should
 normally be a small focused component or function, not a base-class hierarchy.
 
-`AgentState` is a facade. Keep source-specific behavior in `SourceManager`, descriptor-specific
-behavior in `DescriptorManager`, and genuinely shared behavior in shared primitives. In
-particular, do not duplicate a complex admission algorithm in both managers.
+`AgentState` is a facade. Public `Source` and `Descriptor` instances are also thin facades over
+their internal `SourceRuntime` and `DescriptorRuntime`. Keep mutable per-instance lifecycle and
+resource ownership in those runtimes, concrete storage and event integration in the managers,
+and genuinely shared behavior in shared primitives. In particular, do not duplicate a complex
+admission algorithm in both managers.
 
 ## Definitions and registration
 
@@ -123,10 +127,16 @@ atomic and reentrancy-safe.
 
 - `Source.set()` recomputes that source's contributions without changing its provenance or
   ordering position.
+- When an update replaces resources that the runtime later destroys, complete the structural
+  replacement and transfer ownership to the runtime before property resolution or public
+  notification can invoke user code. A listener failure must not orphan replacement modifiers,
+  leave a live source with no owned modifiers, or prevent later destruction from cleaning them.
+  Roll back partially allocated replacement resources if allocation itself fails.
 - Destruction is terminal and idempotent. Mutating a destroyed instance throws; repeated
   destruction is harmless.
 - Descriptor updates flow through the binding. Descriptor destruction tears down the binding and
-  its derived source.
+  every derived source, including sources added reentrantly while the binding is being destroyed.
+  A successfully bound descriptor retains its `getSource()` read after destruction.
 - Register internal state before publishing an added event. Remove an instance from every internal
   map/index before publishing removed or destroy events.
 - Public callbacks are reentrant user code. Correctness must hold if a contribution function,
@@ -139,6 +149,20 @@ atomic and reentrancy-safe.
 - Keep property resolution batching separate from lifecycle-event semantics. Today property
   callbacks are coalesced; source and descriptor lifecycle callbacks are not implicitly an
   end-of-batch event queue. Any change to that observation model is a public semantic change.
+
+### Callback failure policy
+
+Callbacks are synchronous and reentrant: do not emulate asynchronous signal dispatch by moving
+them to a microtask or timer, because that would change observable ordering and lifecycle
+semantics. `CallbackSet` currently invokes every callback, collects independent failures, and
+callers may rethrow an aggregate after the callback pass.
+
+**Design direction:** public observation callbacks should become best-effort. A failed observer
+must not make a completed source, descriptor, or property mutation appear uncommitted, and must
+not stop later observers. Report those failures through an explicit, host-injected diagnostic or
+error-reporting seam rather than silently swallowing them or relying on `console.error`. Until
+that seam and its public API are intentionally introduced, preserve the current propagation
+behavior while maintaining the same state-consistency guarantees.
 
 ### Descriptor boundary
 
@@ -170,6 +194,8 @@ that behavior.
   descriptor snapshots are applied in different orders.
 - Whenever public state gains a new identity dimension, decide explicitly whether it crosses the
   replication boundary and test live events, snapshots, serialization, and backward compatibility.
+- Duplication keys cross the replication boundary. Serializers include them for Sources and
+  Descriptors; receivers treat an absent key from a pre-key payload as the unkeyed bucket.
 
 ## Duplication and admission
 
@@ -183,10 +209,10 @@ The basic public policies are `allow`, `ignore`, `replace`, and `reconcile`:
 An add that is ignored or reconciled currently returns `undefined`. Do not change return semantics
 casually; they are part of the public API.
 
-The codebase may be between the original same-type policy implementation and the keyed/grouped
-transactional design described below. Inspect the branch before editing.
+The keyed/grouped transactional design below is the active model. Preserve its public behavior
+and its admission invariants when changing duplicate policies.
 
-### Design direction: domains, groups, and keys
+### Domains, groups, and keys
 
 - A duplication domain defines which types can conflict. A normal type uses itself as its domain.
   All members of a `DuplicationGroup` use the actual shared group object as their domain so
@@ -209,25 +235,26 @@ transactional design described below. Inspect the branch before editing.
 - Validate stack limits and selector configuration at definition time and cover invalid numeric
   inputs with tests.
 
-Whether duplication keys are replicated or intentionally local-only remains an architectural
-decision. Do not silently pick one. When it is settled, encode the choice in serialized types,
-receivers, snapshots, compatibility tests, and documentation.
-
-### Design direction: responsibility split
+### Responsibility split
 
 Keep the duplication subsystem divided along these lines:
 
+- `AdmissionCoordinator` orchestrates preflight, reservation, full decisions, preparation,
+  eviction, installation, publication, and commit. It consumes decisions rather than owning
+  candidate lifecycle state or duplicating policy evaluation.
+- `AdmissionTransaction` owns the reservation state machine, pending candidate view, deferred
+  reconciliations, cancellation, and rollback across reentrant user code.
+- `DuplicationResolver` performs callback-free preflight decisions where the index alone is
+  sufficient and full decisions where candidate inspection or group policy evaluation is needed.
 - `DuplicationIndex` is a queryable storage primitive organized conceptually as
   `domain -> key -> entries`. It stores and retrieves pending/live candidates, preserves stable
-  entry order, unregisters exact entries, and prunes empty buckets. It does not choose policy,
-  invoke application lifecycle, or own managers.
-- `DuplicationResolver` derives domains, queries conflicts, evaluates policy, and produces a
-  complete admission decision such as add with an eviction set, ignore, or reconcile with a
-  target.
-- An admission transaction/reservation coordinates planning, publication, commit, cancellation,
-  and rollback across reentrant user code.
-- `SourceManager` and `DescriptorManager` execute their concrete lifecycle work, batching, and
-  events after consuming the shared decision.
+  entry order, unregisters exact entries, records revision bases used to validate membership,
+  and prunes empty key and domain buckets. It does not choose policy, invoke application
+  lifecycle, or own managers.
+- `SourceRuntime` and `DescriptorRuntime` own mutable instance lifecycle, including preparation,
+  installation, publication, live ownership, destruction, and cleanup of their resources.
+- `SourceManager` and `DescriptorManager` create admission plans and provide the runtimes with
+  concrete storage, modifier/batching, and lifecycle-event adapters.
 
 Do not re-check policy independently in a manager after the resolver has decided it. That creates
 time-of-check/time-of-use disagreement under reentrancy.
@@ -240,6 +267,18 @@ their representation or lookup without deleting the information.
 Queries should return read-only snapshots or otherwise prevent callers from mutating index-owned
 buckets. Registration should return an exact-entry cleanup handle, and empty key/domain buckets
 must be removed.
+
+Admission optimizations must preserve these validation boundaries:
+
+- Preflight may inspect structural index facts such as bucket size or the first entry, but it must
+  not execute user callbacks such as reconciliation, ranking, replacement predicates,
+  contribution functions, or descriptor handlers.
+- An unchanged index basis proves only that bucket membership has not changed. A no-eviction add
+  decision may be reused on that basis, but the basis does not validate mutable candidate data or
+  any other policy input.
+- A decision with planned evictions must always be rerun after preparation. Contribution or
+  binding work may mutate rank or other policy-relevant data without changing index membership,
+  making the original eviction set stale even when its basis is unchanged.
 
 ### Admission transaction invariants
 
@@ -292,6 +331,9 @@ not weaken lifecycle or replication semantics.
 - Preserve `allow` indexing. Preferred optimizations include direct bucket lookup, allocation-free
   common decisions, avoiding duplicate pending/live entries, pruning retained closures, and only
   invoking selectors/rankers when necessary.
+- Keep preflight callback-free, reuse decisions only within the basis-validation rules above, and
+  drain queued reconciliations in linear time. An allocation or traversal reduction is not valid
+  if it reuses an eviction decision after policy-relevant candidate data may have changed.
 - Keep microbenchmarks for isolated paths and scenario benchmarks for realistic graphs and mixed
   lifecycle operations. Important dimensions include first admission, conflicting admission,
   add/update/remove, property resolution, listeners, descriptors, replication, bucket width,
