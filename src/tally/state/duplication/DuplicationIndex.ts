@@ -24,10 +24,13 @@ export class DuplicationIndex {
 
 	get(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
 		if (key === undefined)
-			return this.duplicationStruct.unkeyed.get(domain) ?? DuplicationIndex.EmptyArray;
+			return (
+				this.duplicationStruct.unkeyed.get(domain)?.slice() ?? DuplicationIndex.EmptyArray
+			);
 		else
 			return (
-				this.duplicationStruct.keyed.get(domain)?.get(key) ?? DuplicationIndex.EmptyArray
+				this.duplicationStruct.keyed.get(domain)?.get(key)?.slice() ??
+				DuplicationIndex.EmptyArray
 			);
 	}
 

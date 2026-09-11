@@ -45,7 +45,7 @@ export class DuplicationResolver {
 			if (conflicts.length > 0)
 				return {
 					action: "add",
-					evict: [...conflicts],
+					evict: conflicts,
 				};
 			return DuplicationResolver.DecideAddStructure;
 		}
