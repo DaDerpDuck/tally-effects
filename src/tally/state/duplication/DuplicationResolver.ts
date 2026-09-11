@@ -126,7 +126,7 @@ export class DuplicationResolver {
 	}
 
 	resolve<TInstance extends DuplicationCandidate<TData>, TData>(
-		plannedInstance: PlannedInstance<TInstance>,
+		plannedInstanceSupplier: () => PlannedInstance<TInstance> | undefined,
 		type: DuplicableType<TInstance, TData>,
 		data: TData,
 		key: string | undefined
@@ -138,6 +138,8 @@ export class DuplicationResolver {
 			return { result: "reconciled" };
 		}
 		if (decision.action === "add") {
+			const plannedInstance = plannedInstanceSupplier();
+			if (!plannedInstance) return { result: "ignored" };
 			let score: (() => number) | undefined = undefined;
 			if (type.duplication.kind === "group") {
 				const rank = type.duplication.rank;

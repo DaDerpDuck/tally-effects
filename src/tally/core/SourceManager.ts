@@ -45,7 +45,7 @@ export class SourceManager {
 	): Source<TData> | undefined {
 		const result = this.batch(() =>
 			this.duplicationResolver.resolve(
-				this.prepareSource(type, data, options),
+				() => this.prepareSource(type, data, options),
 				type,
 				data,
 				options?.key
