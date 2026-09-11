@@ -7,6 +7,13 @@ import {
 	DuplicationGroup,
 	type Source,
 } from "../src/index.js";
+import { DuplicationIndex } from "../../src/tally/state/duplication/DuplicationIndex.js";
+import { DuplicationResolver } from "../../src/tally/state/duplication/DuplicationResolver.js";
+import type {
+	DuplicableType,
+	DuplicationCandidate,
+} from "../../src/tally/state/duplication/DuplicationCandidate.js";
+import type { PlannedInstance } from "../../src/tally/state/PlannedInstance.js";
 
 describe("duplication admission transactions", () => {
 	it("preserves a group's stack limit when an eviction callback reenters admission", () => {
@@ -296,6 +303,7 @@ describe("duplication admission transactions", () => {
 	it("unregisters a Source destroyed by pending reconciliation", () => {
 		let reentered = false;
 		const agent = new AgentState<undefined>(undefined);
+		const added = new Array<Source<number>>();
 		const SourceType = defineSourceType<number>({
 			name: "PendingReconciliationDestroyedSource",
 			priority: 100,
@@ -311,11 +319,52 @@ describe("duplication admission transactions", () => {
 				return [];
 			},
 		});
+		agent.onSourceAdded((source) => added.push(source as Source<number>));
 
 		agent.addSource(SourceType, 1);
 
 		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(added).toEqual([]);
 		expect(agent.addSource(SourceType, 3)).toBeDefined();
+	});
+
+	it("cancels the incoming reservation when eviction throws", () => {
+		type Candidate = DuplicationCandidate<number>;
+
+		const type = {
+			duplication: { kind: "replace" },
+		} as unknown as DuplicableType<Candidate, number>;
+		const index = new DuplicationIndex();
+		const resolver = new DuplicationResolver(index);
+		const plan = (candidate: Candidate, onCancel: () => void): PlannedInstance<Candidate> => ({
+			get: () => candidate,
+			commit: () => candidate,
+			publish: () => {},
+			cancel: onCancel,
+		});
+		const throwingCandidate: Candidate = {
+			type,
+			get: () => 1,
+			destroy: () => {
+				throw new Error("destroy failed");
+			},
+		};
+		const first = resolver.resolve(plan(throwingCandidate, () => {}), type, 1, undefined);
+		if (first.result === "added") first.publish();
+
+		let cancelled = false;
+		const incomingCandidate: Candidate = {
+			type,
+			get: () => 2,
+			destroy: () => {},
+		};
+
+		expect(() =>
+			resolver.resolve(plan(incomingCandidate, () => (cancelled = true)), type, 2, undefined)
+		).toThrow("destroy failed");
+
+		expect(cancelled).toBe(true);
+		expect(index.get(type, undefined)).toEqual([]);
 	});
 
 	it("unregisters a Source before removed observers attempt replacement", () => {
