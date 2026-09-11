@@ -10,6 +10,8 @@ import type {
 
 class DuplicationBucket {
 	readonly entries: AnyDuplicationEntry[] = [];
+	public revision = 0;
+
 	constructor(
 		readonly domain: object,
 		readonly key: string | undefined
@@ -18,7 +20,6 @@ class DuplicationBucket {
 
 export class DuplicationIndex {
 	private static readonly EmptyArray = new Array<AnyDuplicationEntry>(0);
-	private revision = 0;
 	private order = 0;
 
 	private readonly duplicationStruct = {
@@ -26,8 +27,8 @@ export class DuplicationIndex {
 		keyed: new Map<object, Map<string, DuplicationBucket>>(),
 	} as const;
 
-	getRevision(): number {
-		return this.revision;
+	getRevision(domain: object, key: string |undefined): number {
+		return this.getBucket(domain, key)?.revision ?? -1;
 	}
 
 	size(domain: object, key: string | undefined) {
@@ -96,7 +97,7 @@ export class DuplicationIndex {
 					}
 				}
 
-				self.revision++;
+				bucket.revision++;
 				if (this.state.kind === "pending") this.state.planned.cancel();
 				else this.state.candidate.destroy();
 			},
@@ -153,7 +154,7 @@ export class DuplicationIndex {
 		};
 
 		bucket.entries.push(stableEntry);
-		this.revision++;
+		bucket.revision++;
 		return plannedHandle;
 	}
 
@@ -172,5 +173,13 @@ export class DuplicationIndex {
 			);
 			return getOrInsertComputed(keyBucket, key, () => new DuplicationBucket(domain, key));
 		}
+	}
+
+	private getBucket(domain: object, key: string | undefined): DuplicationBucket | undefined {
+		if (key === undefined) 
+			return this.duplicationStruct.unkeyed.get(domain)
+		 else 
+			return this.duplicationStruct.keyed.get(domain)?.get(key);
+		
 	}
 }

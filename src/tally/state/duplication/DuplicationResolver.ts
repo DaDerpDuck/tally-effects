@@ -83,7 +83,7 @@ export class DuplicationResolver {
 				so we must revalidate the index hasn't changed */
 				const selector = policy.group.selector;
 				for (;;) {
-					const revision = this.index.getRevision();
+					const revision = this.index.getRevision(domain, key);
 					const conflicts = this.index.snapshot(domain, key);
 					if (conflicts.length < policy.group.maxStack)
 						return DuplicationResolver.DecideAddStructure;
@@ -111,11 +111,11 @@ export class DuplicationResolver {
 					}
 
 					if (policy.replaceIf(rank, policy.rank(data))) {
-						if (this.index.getRevision() === revision)
+						if (this.index.getRevision(domain, key) === revision)
 							// TODO: Select the full eviction set when this bucket already exceeds maxStack.
 							return { action: "add", evict: [selectedCandidate] };
 					} else {
-						if (this.index.getRevision() === revision)
+						if (this.index.getRevision(domain, key) === revision)
 							return DuplicationResolver.DecideIgnoreStructure;
 					}
 				}
