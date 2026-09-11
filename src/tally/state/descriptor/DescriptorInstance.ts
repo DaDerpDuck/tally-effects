@@ -16,6 +16,7 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	private triedToBind = false;
 	private destroyed = false;
+	private bindingInProgress = false;
 
 	constructor(
 		public readonly id: DescriptorId,
@@ -31,8 +32,16 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 	tryBind(): DescriptorBinding<TDescriptorData, TSourceData> | undefined {
 		if (this.triedToBind) return this.binding;
 		this.triedToBind = true;
-		this.binding = this.bindingProvider(this.derivedSources);
-		return this.binding;
+		this.bindingInProgress = true;
+		try {
+			const binding = this.bindingProvider(this.derivedSources);
+			this.binding = binding;
+			// reentrancy may have caused this descriptor to be destroyed
+			return this.destroyed ? undefined : binding;
+		} finally {
+			this.bindingInProgress = false;
+			if (this.destroyed) this.cleanupBinding();
+		}
 	}
 
 	set(data: TDescriptorData) {
@@ -73,15 +82,19 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 	destroy() {
 		if (this.destroyed) return;
 		this.destroyed = true;
-		this.binding?.destroy();
 		this.destroyCallbacks.forEach((callback) => callback(this));
 		this.updateCallbacks.clear();
 		this.destroyCallbacks.clear();
-		this.derivedSources.forEach((source) => source.destroy());
-		this.derivedSources.length = 0;
+		if (!this.bindingInProgress) this.cleanupBinding();
 	}
 
 	private assertAlive() {
 		if (this.destroyed) throw new Error("Descriptor has been destroyed");
+	}
+
+	private cleanupBinding() {
+		this.binding?.destroy();
+		this.derivedSources.forEach((source) => source.destroy());
+		this.derivedSources.length = 0;
 	}
 }

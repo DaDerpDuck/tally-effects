@@ -171,8 +171,7 @@ export class DescriptorManager<TEntity> {
 			commit: () => {
 				if (cancelled) return;
 				const descriptor = getInstance();
-				if (!descriptor.tryBind()) return undefined;
-				if (cancelled) return;
+				if (!descriptor.tryBind() || cancelled) return;
 
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
 
