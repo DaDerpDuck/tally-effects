@@ -165,7 +165,8 @@ export class DuplicationResolver {
 							afterCommitCallbacks.forEach((callback) =>
 								callback(liveEntry.candidate)
 							);
-							liveEntry.publish();
+							if (liveEntry.entry.active) liveEntry.publish();
+							else liveEntry.evict();
 						} catch (e) {
 							liveEntry.evict();
 							throw e;

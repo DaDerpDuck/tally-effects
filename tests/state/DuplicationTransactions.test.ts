@@ -349,7 +349,12 @@ describe("duplication admission transactions", () => {
 				throw new Error("destroy failed");
 			},
 		};
-		const first = resolver.resolve(plan(throwingCandidate, () => {}), type, 1, undefined);
+		const first = resolver.resolve(
+			plan(throwingCandidate, () => {}),
+			type,
+			1,
+			undefined
+		);
 		if (first.result === "added") first.publish();
 
 		let cancelled = false;
@@ -360,7 +365,12 @@ describe("duplication admission transactions", () => {
 		};
 
 		expect(() =>
-			resolver.resolve(plan(incomingCandidate, () => (cancelled = true)), type, 2, undefined)
+			resolver.resolve(
+				plan(incomingCandidate, () => (cancelled = true)),
+				type,
+				2,
+				undefined
+			)
 		).toThrow("destroy failed");
 
 		expect(cancelled).toBe(true);
