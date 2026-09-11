@@ -6,7 +6,7 @@ export interface SourcePlanHost<TData> {
 	createSource(): SourceInstance<TData>;
 	applyModifiers(source: SourceInstance<TData>): ModifierHandle[];
 	discardModifiers(handles: ModifierHandle[]): void;
-	installSource(source: SourceInstance<TData>, handles: ModifierHandle[]): void;
+	installSource(source: SourceInstance<TData>, handles: ModifierHandle[], cleanup: () => void): void;
 	publish(source: SourceInstance<TData>): void;
 }
 
@@ -22,7 +22,7 @@ export class PlannedSource<TData> implements PlannedInstance<SourceInstance<TDat
 		return (this.source ??= this.host.createSource());
 	}
 
-	commit(): SourceInstance<TData> | undefined {
+	commit(cleanup: () => void): SourceInstance<TData> | undefined {
 		if (this.state !== "pending") return;
 		this.state = "committing";
 
@@ -35,7 +35,7 @@ export class PlannedSource<TData> implements PlannedInstance<SourceInstance<TDat
 			return;
 		}
 
-		this.host.installSource(source, handles);
+		this.host.installSource(source, handles, cleanup);
 		this.state = "committed";
 		return source;
 	}

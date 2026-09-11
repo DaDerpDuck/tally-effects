@@ -3,7 +3,7 @@ import type { DescriptorInstance } from "./DescriptorInstance.js";
 
 export interface DescriptorPlanHost<TDescriptorData, TSourceData> {
 	createDescriptor(): DescriptorInstance<TDescriptorData, TSourceData>;
-	installDescriptor(descriptor: DescriptorInstance<TDescriptorData, TSourceData>): void;
+	installDescriptor(descriptor: DescriptorInstance<TDescriptorData, TSourceData>, cleanup: () => void): void;
 	publish(descriptor: DescriptorInstance<TDescriptorData, TSourceData>): void;
 }
 
@@ -21,7 +21,7 @@ export class PlannedDescriptor<TDescriptorData, TSourceData> implements PlannedI
 		return (this.descriptor ??= this.host.createDescriptor());
 	}
 
-	commit(): DescriptorInstance<TDescriptorData, TSourceData> | undefined {
+	commit(cleanup: () => void): DescriptorInstance<TDescriptorData, TSourceData> | undefined {
 		if (this.state !== "pending") return;
 		this.state = "committing";
 
@@ -33,7 +33,7 @@ export class PlannedDescriptor<TDescriptorData, TSourceData> implements PlannedI
 				return;
 			}
 
-			this.host.installDescriptor(descriptor);
+			this.host.installDescriptor(descriptor, cleanup);
 			this.state = "committed";
 			return descriptor;
 		} catch (e) {

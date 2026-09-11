@@ -55,7 +55,6 @@ export class SourceManager {
 			);
 
 			if (result.result === "added") {
-				result.instance.onDestroy(() => result.unregister());
 				result.publish();
 				return result.instance;
 			} else {
@@ -144,7 +143,7 @@ export class SourceManager {
 			applyModifiers: (source) =>
 				this.applyModifiers(type, source.priority, source.provenance, data),
 			discardModifiers: (handles) => this.clearModifierHandles(handles),
-			installSource: (source, handles) => {
+			installSource: (source, handles, cleanup) => {
 				this.sourceModifiersMap.set(source, handles);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
 				this.requestResolve();
@@ -175,6 +174,7 @@ export class SourceManager {
 
 				source.onDestroy(() => {
 					isDestroyed = true;
+					cleanup();
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.clearModifierHandles(handles);
 					this.sourceModifiersMap.delete(source);

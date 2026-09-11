@@ -16,7 +16,7 @@ export type DuplicationDecision =
 	  };
 
 export type DuplicationResult<TInstance extends DuplicationCandidate<TData>, TData> =
-	| { readonly result: "added"; instance: TInstance; unregister(): void; publish(): void }
+	| { readonly result: "added"; instance: TInstance; publish(): void }
 	| { readonly result: "ignored" }
 	| { readonly result: "reconciled" };
 
@@ -167,7 +167,6 @@ export class DuplicationResolver {
 				return {
 					result: "added",
 					instance: liveEntry.candidate,
-					unregister: () => liveEntry.evict(),
 					publish: () => {
 						try {
 							afterCommitCallbacks.forEach((callback) =>

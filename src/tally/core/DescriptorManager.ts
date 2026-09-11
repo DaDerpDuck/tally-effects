@@ -53,7 +53,6 @@ export class DescriptorManager<TEntity> {
 			);
 
 			if (result.result === "added") {
-				result.instance.onDestroy(() => result.unregister());
 				result.publish();
 				return result.instance;
 			} else {
@@ -121,7 +120,7 @@ export class DescriptorManager<TEntity> {
 
 		return new PlannedDescriptor({
 			createDescriptor: () => this.createDescriptor(agent, handler, type, data, options),
-			installDescriptor: (descriptor) => {
+			installDescriptor: (descriptor, cleanup) => {
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
 
 				descriptor.onUpdate(() => {
@@ -129,6 +128,7 @@ export class DescriptorManager<TEntity> {
 				});
 
 				descriptor.onDestroy(() => {
+					cleanup();
 					this.descriptorMap.get(type)?.delete(descriptor);
 				});
 			},

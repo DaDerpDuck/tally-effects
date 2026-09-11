@@ -112,7 +112,7 @@ export class DuplicationIndex {
 					this.entry.state.kind !== "pending"
 				)
 					return;
-				const liveCandidate = this.entry.state.planned.commit();
+				const liveCandidate = this.entry.state.planned.commit(() => stableEntry.evict());
 				if (!liveCandidate) return;
 				if (!this.entry.active) {
 					liveCandidate.destroy();
