@@ -159,7 +159,10 @@ export class SourceManager {
 						source.get()
 					);
 					// reentrant code may have destroyed this source
-					if (isDestroyed) return;
+					if (isDestroyed) {
+						this.clearModifierHandles(nextHandles);
+						return;
+					};
 					handles = nextHandles;
 					this.sourceModifiersMap.set(source, handles);
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
