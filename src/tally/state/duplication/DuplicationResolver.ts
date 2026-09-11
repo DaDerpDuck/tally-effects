@@ -149,9 +149,9 @@ export class DuplicationResolver {
 				plannedEntry.entry.state.kind === "pending"
 					? plannedEntry.entry.state.afterCommit
 					: [];
-			decision.evict.forEach((entry) => entry.evict());
 
 			try {
+				decision.evict.forEach((entry) => entry.evict());
 				const liveEntry = plannedEntry.commit();
 
 				if (!liveEntry) return { result: "ignored" };
