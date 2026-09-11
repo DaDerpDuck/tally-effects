@@ -112,7 +112,7 @@ export class DuplicationResolver {
 
 					if (policy.replaceIf(rank, policy.rank(data))) {
 						if (this.index.getRevision() === revision)
-							// TODO: Trim bucket size if needed
+							// TODO: Select the full eviction set when this bucket already exceeds maxStack.
 							return { action: "add", evict: [selectedCandidate] };
 					} else {
 						if (this.index.getRevision() === revision)

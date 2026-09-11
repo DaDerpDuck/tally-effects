@@ -91,7 +91,8 @@ export class DuplicationIndex {
 					return;
 				}
 
-				const publish = this.entry.state.planned.publish;
+				// planned instance will be reachable until publication finishes
+				const planned = this.entry.state.planned;
 
 				this.entry.state = {
 					kind: "live",
@@ -104,7 +105,7 @@ export class DuplicationIndex {
 					entry: stableEntry,
 					candidate: liveCandidate,
 					publish() {
-						publish(liveCandidate);
+						planned.publish(liveCandidate);
 					},
 					evict() {
 						this.entry.evict();

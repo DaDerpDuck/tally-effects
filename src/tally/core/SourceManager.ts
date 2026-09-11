@@ -4,6 +4,7 @@ import type { AnyProperty, Property } from "../property/Property.js";
 import type { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
 import type { PlannedInstance } from "../state/PlannedInstance.js";
 import type { StateProvenance } from "../state/Provenance.js";
+import { PlannedSource } from "../state/source/PlannedSource.js";
 import type { Source } from "../state/source/Source.js";
 import { SourceInstance } from "../state/source/SourceInstance.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
@@ -134,41 +135,13 @@ export class SourceManager {
 		type: SourceType<TData>,
 		data: TData,
 		options?: SourceOption
-	): PlannedInstance<SourceInstance<TData>> {
-		let sourceOptional: SourceInstance<TData> | undefined;
-		const getInstance = (): SourceInstance<TData> => {
-			if (sourceOptional) return sourceOptional;
-			const priority = options?.priority ?? type.priority;
-			const sourceId = this.counter.next();
-			const provenance = options?.provenance ?? {
-				domain: "local",
-				sequence: sourceId,
-			};
-			const source = new SourceInstance(
-				sourceId,
-				type,
-				priority,
-				options?.key,
-				provenance,
-				data
-			);
-			sourceOptional = source;
-			return source;
-		};
-
-		let cancelled = false;
-		// TODO: Clean this up
-		return {
-			get: getInstance,
-			commit: () => {
-				if (cancelled) return;
-				const source = getInstance();
-				let handles = this.applyModifiers(type, source.priority, source.provenance, data);
-				// user code may have caused reentrant admission
-				if (cancelled) {
-					this.clearModifierHandles(handles);
-					return;
-				}
+	): PlannedSource<TData> {
+		return new PlannedSource({
+			createSource: () => this.createSource(type, data, options),
+			applyModifiers: (source) =>
+				this.applyModifiers(type, source.priority, source.provenance, data),
+			discardModifiers: (handles) => this.clearModifierHandles(handles),
+			installSource: (source, handles) => {
 				this.sourceModifiersMap.set(source, handles);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
 				this.requestResolve();
@@ -178,12 +151,14 @@ export class SourceManager {
 				source.onUpdate(() => {
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.clearModifierHandles(handles);
-					handles = this.applyModifiers(
+					const nextHandles = this.applyModifiers(
 						type,
 						source.priority,
 						source.provenance,
 						source.get()
 					);
+
+					handles = nextHandles;
 					this.sourceModifiersMap.set(source, handles);
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
 					this.requestResolve();
@@ -197,21 +172,25 @@ export class SourceManager {
 					this.sourceMap.get(source.type)?.delete(source);
 					this.requestResolve();
 				});
-
-				return source;
 			},
-			publish: (instance) => {
-				this.sourceAddedCallbacks.forEach((callback) => callback(instance));
-				instance.onDestroy(() =>
-					this.sourceRemovedCallbacks.forEach((callback) => callback(instance))
+			publish: (source) => {
+				this.sourceAddedCallbacks.forEach((callback) => callback(source));
+				source.onDestroy(() =>
+					this.sourceRemovedCallbacks.forEach((callback) => callback(source))
 				);
 			},
-			cancel: () => {
-				if (cancelled) return;
-				cancelled = true;
-				sourceOptional?.destroy();
-			},
+		});
+	}
+
+	private createSource<TData>(type: SourceType<TData>, data: TData, options?: SourceOption) {
+		const priority = options?.priority ?? type.priority;
+		const sourceId = this.counter.next();
+		const provenance = options?.provenance ?? {
+			domain: "local",
+			sequence: sourceId,
 		};
+		const source = new SourceInstance(sourceId, type, priority, options?.key, provenance, data);
+		return source;
 	}
 
 	private requestResolve() {
