@@ -21,6 +21,7 @@ export type LiveDuplicationEntry<TInstance extends DuplicationCandidate> = {
 	active: boolean;
 	readonly score: () => number;
 	readonly evict: () => void;
+	readonly publish: () => void;
 };
 
 export type DuplicationEntry<TInstance extends DuplicationCandidate = DuplicationCandidate> =
@@ -69,7 +70,7 @@ export class DuplicationIndex {
 				plannedEntry.active = false;
 				const index = bucket.entries.findIndex((e) => e === plannedEntry);
 				if (index < 0) return;
-				const liveCandidate = plannedEntry.plannedCandidate.publish();
+				const liveCandidate = plannedEntry.plannedCandidate.commit();
 				if (!liveCandidate) return; // publish rejected for whatever reason
 				const liveEntry: LiveDuplicationEntry<TInstance> = {
 					kind: "live",
@@ -86,6 +87,9 @@ export class DuplicationIndex {
 						bucket.entries.pop();
 						bucket.shrink();
 						liveEntry.candidate.destroy();
+					},
+					publish() {
+						plannedEntry.plannedCandidate.publish(liveEntry.candidate);
 					},
 				};
 				bucket.entries[index] = liveEntry;

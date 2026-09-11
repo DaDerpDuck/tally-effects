@@ -21,7 +21,7 @@ export type DuplicationDecision<TInstance extends DuplicationCandidate<TData>, T
 	  };
 
 export type DuplicationResult<TInstance extends DuplicationCandidate<TData>, TData> =
-	| { readonly result: "added"; instance: TInstance; unregister(): void }
+	| { readonly result: "added"; instance: TInstance; unregister(): void; publish(): void }
 	| { readonly result: "ignored" }
 	| { readonly result: "reconciled" };
 
@@ -143,6 +143,7 @@ export class DuplicationResolver {
 					result: "added",
 					instance: liveEntry.candidate,
 					unregister: () => liveEntry.evict(),
+					publish: () => liveEntry.publish(),
 				};
 			} finally {
 				plannedEntry.evict();

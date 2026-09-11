@@ -50,6 +50,7 @@ export class DescriptorManager<TEntity> {
 
 		if (result.result === "added") {
 			result.instance.onDestroy(() => result.unregister());
+			result.publish();
 			return result.instance;
 		} else {
 			return undefined;
@@ -161,12 +162,11 @@ export class DescriptorManager<TEntity> {
 
 		return {
 			get: getInstance,
-			publish: () => {
+			commit: () => {
 				const descriptor = getInstance();
 				if (!descriptor.tryBind()) return undefined;
 
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
-				this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
 
 				descriptor.onUpdate(() =>
 					this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor))
@@ -178,6 +178,9 @@ export class DescriptorManager<TEntity> {
 				});
 
 				return descriptor;
+			},
+			publish: (instance) => {
+				this.descriptorAddedCallbacks.forEach((callback) => callback(instance));
 			},
 			cancel: () => {
 				descriptorOptional?.destroy();

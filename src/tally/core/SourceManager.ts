@@ -53,6 +53,7 @@ export class SourceManager {
 
 		if (result.result === "added") {
 			result.instance.onDestroy(() => result.unregister());
+			result.publish();
 			return result.instance;
 		} else {
 			return undefined;
@@ -158,7 +159,7 @@ export class SourceManager {
 		// TODO: Clean this up
 		return {
 			get: getInstance,
-			publish: () => {
+			commit: () => {
 				const source = getInstance();
 				let handles = this.applyModifiers(type, source.priority, source.provenance, data);
 				this.sourceModifiersMap.set(source, handles);
@@ -191,9 +192,10 @@ export class SourceManager {
 					this.sourceRemovedCallbacks.forEach((callback) => callback(source));
 				});
 
-				this.sourceAddedCallbacks.forEach((callback) => callback(source));
-
 				return source;
+			},
+			publish: (instance) => {
+				this.sourceAddedCallbacks.forEach((callback) => callback(instance));
 			},
 			cancel: () => {
 				sourceOptional?.destroy();
