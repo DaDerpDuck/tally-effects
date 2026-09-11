@@ -160,11 +160,14 @@ export class DescriptorManager<TEntity> {
 			return descriptor;
 		};
 
+		let cancelled = false;
 		return {
 			get: getInstance,
 			commit: () => {
+				if (cancelled) return;
 				const descriptor = getInstance();
 				if (!descriptor.tryBind()) return undefined;
+				if (cancelled) return;
 
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
 
@@ -183,6 +186,8 @@ export class DescriptorManager<TEntity> {
 				);
 			},
 			cancel: () => {
+				if (cancelled) return;
+				cancelled = true;
 				descriptorOptional?.destroy();
 			},
 		};

@@ -156,12 +156,16 @@ export class SourceManager {
 			return source;
 		};
 
+		let cancelled = false;
 		// TODO: Clean this up
 		return {
 			get: getInstance,
 			commit: () => {
+				if (cancelled) return;
 				const source = getInstance();
 				let handles = this.applyModifiers(type, source.priority, source.provenance, data);
+				// user code may have caused reentrant admission
+				if (cancelled) return;
 				this.sourceModifiersMap.set(source, handles);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
 				this.requestResolve();
@@ -200,6 +204,8 @@ export class SourceManager {
 				);
 			},
 			cancel: () => {
+				if (cancelled) return;
+				cancelled = true;
 				sourceOptional?.destroy();
 			},
 		};

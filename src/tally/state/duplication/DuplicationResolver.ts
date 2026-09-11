@@ -45,7 +45,7 @@ export class DuplicationResolver {
 			if (conflicts.length > 0)
 				return {
 					action: "add",
-					evict: conflicts,
+					evict: [...conflicts],
 				};
 			return DuplicationResolver.DecideAddStructure;
 		}
@@ -136,12 +136,14 @@ export class DuplicationResolver {
 			}
 
 			const plannedEntry = this.index.plan(this.domainOf(type), key, plannedInstance, score);
+			const afterCommitCallbacks = plannedEntry.entry.state.kind === "pending" ? plannedEntry.entry.state.afterCommit : [];
 			decision.evict.forEach((entry) => entry.evict());
 
 			try {
 				const liveEntry = plannedEntry.commit();
 
 				if (!liveEntry) return { result: "ignored" };
+				afterCommitCallbacks.forEach((callback) => callback(liveEntry.candidate));
 
 				return {
 					result: "added",

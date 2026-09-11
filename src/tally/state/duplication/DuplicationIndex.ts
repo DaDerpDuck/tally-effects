@@ -75,16 +75,18 @@ export class DuplicationIndex {
 					return;
 				const liveCandidate = this.entry.state.planned.commit();
 				if (!liveCandidate) return;
+				if (!this.entry.active) {
+					liveCandidate.destroy();
+					return;
+				}
 
 				const publish = this.entry.state.planned.publish;
-				const afterCommitCallbacks = this.entry.state.afterCommit;
 
 				this.entry.state = {
 					kind: "live",
 					candidate: liveCandidate,
 				};
 				this.entry.committed = true;
-				afterCommitCallbacks.forEach((callback) => callback(liveCandidate));
 
 				const liveHandle: LiveDuplicationEntryHandle<TInstance> = {
 					kind: "live",
