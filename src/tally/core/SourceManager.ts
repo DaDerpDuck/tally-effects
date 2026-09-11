@@ -1,7 +1,7 @@
 import { ModifierRegistry, type ModifierHandle } from "../modifier/ModifierRegistry.js";
 import { OrderingDomain } from "../modifier/OrderingDomain.js";
 import type { AnyProperty, Property } from "../property/Property.js";
-import type { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
+import type { DuplicationResolver, DuplicationResult } from "../state/duplication/DuplicationResolver.js";
 import type { PlannedInstance } from "../state/PlannedInstance.js";
 import type { StateProvenance } from "../state/Provenance.js";
 import { PlannedSource } from "../state/source/PlannedSource.js";
@@ -43,14 +43,20 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		const result = this.batch(() =>
-			this.duplicationResolver.resolve(
+		let result: DuplicationResult<Source<TData>, TData>
+		// inlined batch
+		this.mutationDepth++;
+		try {
+			result = this.duplicationResolver.resolve(
 				() => this.prepareSource(type, data, options),
 				type,
 				data,
 				options?.key
-			)
-		);
+			);
+		} finally {
+			this.mutationDepth--;
+			if (this.mutationDepth === 0) this.resolveProperties();
+		}
 
 		if (result.result === "added") {
 			result.instance.onDestroy(() => result.unregister());
