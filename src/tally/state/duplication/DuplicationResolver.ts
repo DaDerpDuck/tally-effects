@@ -94,19 +94,25 @@ export class DuplicationResolver {
 
 					for (let i = 1; i < conflicts.length; i++) {
 						const conflict = conflicts[i]!;
-						const cRank = conflict.score();
-
 						if (
 							(selector === "oldest" && conflict.order < order) ||
-							(selector === "newest" && conflict.order >= order) ||
-							(selector === "lowest" &&
-								(cRank < rank || (cRank === rank && conflict.order < order))) ||
-							(selector === "highest" &&
-								(cRank > rank || (cRank === rank && conflict.order >= order)))
+							(selector === "newest" && conflict.order >= order)
 						) {
-							rank = cRank;
+							rank = conflict.order;
 							order = conflict.order;
 							selectedCandidate = conflict;
+						} else {
+							const cRank = conflict.score();
+							if (
+								(selector === "lowest" &&
+									(cRank < rank || (cRank === rank && conflict.order < order))) ||
+								(selector === "highest" &&
+									(cRank > rank || (cRank === rank && conflict.order >= order)))
+							) {
+								rank = cRank;
+								order = conflict.order;
+								selectedCandidate = conflict;
+							}
 						}
 					}
 

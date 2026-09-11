@@ -27,7 +27,7 @@ export class DuplicationIndex {
 		keyed: new Map<object, Map<string, DuplicationBucket>>(),
 	} as const;
 
-	getRevision(domain: object, key: string |undefined): number {
+	getRevision(domain: object, key: string | undefined): number {
 		return this.getBucket(domain, key)?.revision ?? -1;
 	}
 
@@ -46,8 +46,7 @@ export class DuplicationIndex {
 	view(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
 		if (key === undefined)
 			return (
-				this.duplicationStruct.unkeyed.get(domain)?.entries ??
-				DuplicationIndex.EmptyArray
+				this.duplicationStruct.unkeyed.get(domain)?.entries ?? DuplicationIndex.EmptyArray
 			);
 		else
 			return (
@@ -176,10 +175,7 @@ export class DuplicationIndex {
 	}
 
 	private getBucket(domain: object, key: string | undefined): DuplicationBucket | undefined {
-		if (key === undefined) 
-			return this.duplicationStruct.unkeyed.get(domain)
-		 else 
-			return this.duplicationStruct.keyed.get(domain)?.get(key);
-		
+		if (key === undefined) return this.duplicationStruct.unkeyed.get(domain);
+		else return this.duplicationStruct.keyed.get(domain)?.get(key);
 	}
 }
