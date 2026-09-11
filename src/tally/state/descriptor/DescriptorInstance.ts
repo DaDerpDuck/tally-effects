@@ -12,6 +12,7 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 > {
 	private readonly updateCallbacks = new Set<(self: this) => void>();
 	private readonly destroyCallbacks = new Set<(self: this) => void>();
+	private readonly derivedSources = new Array<Source>();
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	private triedToBind = false;
 	private destroyed = false;
@@ -21,14 +22,16 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 		public readonly type: DescriptorType<TDescriptorData, TSourceData>,
 		public readonly key: string | undefined,
 		public readonly provenance: StateProvenance,
-		private readonly bindingProvider: () => DescriptorBinding<TDescriptorData, TSourceData>,
+		private readonly bindingProvider: (
+			derivedSources: Source[]
+		) => DescriptorBinding<TDescriptorData, TSourceData>,
 		private data: TDescriptorData
 	) {}
 
 	tryBind(): DescriptorBinding<TDescriptorData, TSourceData> | undefined {
 		if (this.triedToBind) return this.binding;
 		this.triedToBind = true;
-		this.binding = this.bindingProvider();
+		this.binding = this.bindingProvider(this.derivedSources);
 		return this.binding;
 	}
 
@@ -74,6 +77,8 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 		this.destroyCallbacks.forEach((callback) => callback(this));
 		this.updateCallbacks.clear();
 		this.destroyCallbacks.clear();
+		this.derivedSources.forEach((source) => source.destroy());
+		this.derivedSources.length = 0;
 	}
 
 	private assertAlive() {

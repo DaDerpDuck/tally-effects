@@ -136,7 +136,10 @@ export class DuplicationResolver {
 			}
 
 			const plannedEntry = this.index.plan(this.domainOf(type), key, plannedInstance, score);
-			const afterCommitCallbacks = plannedEntry.entry.state.kind === "pending" ? plannedEntry.entry.state.afterCommit : [];
+			const afterCommitCallbacks =
+				plannedEntry.entry.state.kind === "pending"
+					? plannedEntry.entry.state.afterCommit
+					: [];
 			decision.evict.forEach((entry) => entry.evict());
 
 			try {
@@ -150,7 +153,7 @@ export class DuplicationResolver {
 					unregister: () => liveEntry.evict(),
 					publish: () => {
 						afterCommitCallbacks.forEach((callback) => callback(liveEntry.candidate));
-						liveEntry.publish()
+						liveEntry.publish();
 					},
 				};
 			} finally {

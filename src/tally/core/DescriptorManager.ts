@@ -9,6 +9,7 @@ import type { DescriptorOption } from "../state/descriptor/DescriptorOption.js";
 import type { AnyDescriptorType, DescriptorType } from "../state/descriptor/DescriptorType.js";
 import type { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
 import type { PlannedInstance } from "../state/PlannedInstance.js";
+import type { Source } from "../state/source/Source.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
@@ -126,7 +127,9 @@ export class DescriptorManager<TEntity> {
 				sequence: descriptorId,
 			};
 
-			const bindingProvider = (): DescriptorBinding<TDescriptorData, TSourceData> =>
+			const bindingProvider = (
+				derivedSources: Source[]
+			): DescriptorBinding<TDescriptorData, TSourceData> =>
 				handler(
 					{
 						agent,
@@ -141,7 +144,9 @@ export class DescriptorManager<TEntity> {
 								},
 								...options,
 							};
-							return this.sources.addSource(type.source, data, newOptions);
+							const source = this.sources.addSource(type.source, data, newOptions);
+							if (source) derivedSources.push(source);
+							return source;
 						},
 					},
 					data
