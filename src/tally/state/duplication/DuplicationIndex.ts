@@ -30,15 +30,27 @@ export class DuplicationIndex {
 		return this.revision;
 	}
 
-	get(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
+	size(domain: object, key: string | undefined) {
+		return this.view(domain, key).length;
+	}
+
+	first(domain: object, key: string | undefined) {
+		return this.view(domain, key)[0];
+	}
+
+	snapshot(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
+		return this.view(domain, key).slice();
+	}
+
+	view(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
 		if (key === undefined)
 			return (
-				this.duplicationStruct.unkeyed.get(domain)?.entries.slice() ??
+				this.duplicationStruct.unkeyed.get(domain)?.entries ??
 				DuplicationIndex.EmptyArray
 			);
 		else
 			return (
-				this.duplicationStruct.keyed.get(domain)?.get(key)?.entries.slice() ??
+				this.duplicationStruct.keyed.get(domain)?.get(key)?.entries ??
 				DuplicationIndex.EmptyArray
 			);
 	}

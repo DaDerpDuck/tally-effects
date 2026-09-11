@@ -35,24 +35,23 @@ export class DuplicationResolver {
 		if (policy.kind === "allow") return DuplicationResolver.DecideAddStructure;
 
 		const domain = this.domainOf(type);
-		const conflicts = this.index.get(domain, key);
 		if (policy.kind === "ignore") {
-			if (conflicts.length > 0) return DuplicationResolver.DecideIgnoreStructure;
+			if (this.index.size(domain, key) > 0) return DuplicationResolver.DecideIgnoreStructure;
 			else return DuplicationResolver.DecideAddStructure;
 		}
 
 		if (policy.kind === "replace") {
-			if (conflicts.length > 0)
+			if (this.index.size(domain, key) > 0)
 				return {
 					action: "add",
-					evict: conflicts,
+					evict: this.index.snapshot(domain, key),
 				};
 			return DuplicationResolver.DecideAddStructure;
 		}
 
 		if (policy.kind === "reconcile") {
-			if (conflicts.length > 0) {
-				const entry = conflicts.values().next().value! as DuplicationEntry<TInstance>;
+			if (this.index.size(domain, key) > 0) {
+				const entry = this.index.first(domain, key)! as DuplicationEntry<TInstance>;
 				return {
 					action: "reconcile",
 					reconcile: () => {
@@ -73,7 +72,7 @@ export class DuplicationResolver {
 
 		if (policy.kind === "group") {
 			if (policy.group.policy === "ignore") {
-				if (conflicts.length >= policy.group.maxStack)
+				if (this.index.size(domain, key) >= policy.group.maxStack)
 					return DuplicationResolver.DecideIgnoreStructure;
 				else return DuplicationResolver.DecideAddStructure;
 			}
@@ -85,15 +84,16 @@ export class DuplicationResolver {
 				const selector = policy.group.selector;
 				for (;;) {
 					const revision = this.index.getRevision();
-					const conflicts = this.index.get(domain, key);
+					const conflicts = this.index.snapshot(domain, key);
 					if (conflicts.length < policy.group.maxStack)
 						return DuplicationResolver.DecideAddStructure;
 
-					let selectedCandidate = conflicts.values().next().value!;
+					let selectedCandidate = conflicts[0]!;
 					let rank = selectedCandidate.score();
 					let order = selectedCandidate.order;
 
-					for (const conflict of conflicts) {
+					for (let i = 1; i < conflicts.length; i++) {
+						const conflict = conflicts[i]!;
 						const cRank = conflict.score();
 
 						if (

@@ -369,7 +369,7 @@ describe("duplication admission transactions", () => {
 		).toThrow("destroy failed");
 
 		expect(cancelled).toBe(true);
-		expect(index.get(type, undefined)).toEqual([]);
+		expect(index.view(type, undefined)).toEqual([]);
 	});
 
 	it("unregisters a Source before removed observers attempt replacement", () => {
