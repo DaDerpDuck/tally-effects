@@ -165,7 +165,10 @@ export class SourceManager {
 				const source = getInstance();
 				let handles = this.applyModifiers(type, source.priority, source.provenance, data);
 				// user code may have caused reentrant admission
-				if (cancelled) return;
+				if (cancelled) {
+					this.clearModifierHandles(handles);
+					return;
+				};
 				this.sourceModifiersMap.set(source, handles);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
 				this.requestResolve();
