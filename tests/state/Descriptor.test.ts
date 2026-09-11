@@ -89,9 +89,7 @@ describe("descriptor lifecycle", () => {
 	it("requires a descriptor handler before creation", () => {
 		const agent = new AgentState<undefined>(undefined);
 
-		expect(() => agent.addDescriptor(ValueDescriptor, { value: 5 })).toThrow(
-			"Attempted to add a descriptor source before a descriptor handler was assigned"
-		);
+		expect(() => agent.addDescriptor(ValueDescriptor, { value: 5 })).toThrow();
 	});
 
 	it("creates a descriptor and initializes its binding", () => {

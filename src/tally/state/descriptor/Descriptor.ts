@@ -13,8 +13,8 @@ export interface AnyDescriptor extends DuplicationCandidate {
 	getSource(): Source;
 	set(data: unknown): void;
 	get(): unknown;
-	onUpdate(callback: (self: this) => void): Disconnect;
-	onDestroy(callback: (self: this) => void): Disconnect;
+	onUpdate(callback: (self: AnyDescriptor) => void): Disconnect;
+	onDestroy(callback: (self: AnyDescriptor) => void): Disconnect;
 	destroy(): void;
 }
 
@@ -28,14 +28,15 @@ export interface Descriptor<TDescriptorData, TSourceData>
 	extends AnyDescriptor, DuplicationCandidate<TDescriptorData> {
 	readonly id: number;
 	readonly type: DescriptorType<TDescriptorData, TSourceData>;
+	readonly key: string | undefined;
 	readonly provenance: StateProvenance;
 
 	getSource(): Source<TSourceData>;
 	set(data: TDescriptorData): void;
 	/** Gets the current data the Descriptor is using. */
 	get(): TDescriptorData;
-	onUpdate(callback: (self: this) => void): Disconnect;
-	onDestroy(callback: (self: this) => void): Disconnect;
+	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect;
+	onDestroy(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect;
 	/**
 	 * Calls the destroy method on the associated DescriptorBinding
 	 * and disconnects all callbacks.

@@ -1,24 +1,20 @@
-import type { PlannedInstance } from "../PlannedInstance.js";
-import type {
-	AnyDuplicableType,
-	DuplicableType,
-	DuplicationCandidate,
-} from "./DuplicationCandidate.js";
+import type { AdmissionRuntime } from "../AdmissionRuntime.js";
+import type { DuplicationCandidate } from "./DuplicationCandidate.js";
 import type { AnyDuplicationEntry, DuplicationEntry } from "./DuplicationEntry.js";
 import { DuplicationIndex } from "./DuplicationIndex.js";
 
-export type DuplicationDecision =
+export type DuplicationDecision<
+	TData,
+	TCandidate extends DuplicationCandidate<TData>,
+	TRuntime extends AdmissionRuntime<TData>,
+> =
 	| { readonly action: "add"; readonly evict: readonly AnyDuplicationEntry[] }
 	| { readonly action: "ignore" }
 	| {
 			readonly action: "reconcile";
-			reconcile(): void;
+			readonly target: DuplicationEntry<TData, TCandidate, TRuntime>;
+			reconcile(target: TCandidate): void;
 	  };
-
-export type DuplicationResult<TInstance extends DuplicationCandidate<TData>, TData> =
-	| { readonly result: "added"; instance: TInstance; unregister(): void; publish(): void }
-	| { readonly result: "ignored" }
-	| { readonly result: "reconciled" };
 
 export class DuplicationResolver {
 	private static readonly DecideAddStructure = { action: "add", evict: [] } as const;
@@ -26,56 +22,72 @@ export class DuplicationResolver {
 
 	constructor(private readonly index: DuplicationIndex) {}
 
-	decide<TInstance extends DuplicationCandidate<TData>, TData>(
-		type: DuplicableType<TInstance, TData>,
-		data: TData,
-		key: string | undefined
-	): DuplicationDecision {
+	decide<
+		TData,
+		TCandidate extends DuplicationCandidate<TData>,
+		TRuntime extends AdmissionRuntime<TData>,
+	>(
+		entry: DuplicationEntry<TData, TCandidate, TRuntime>
+	): DuplicationDecision<TData, TCandidate, TRuntime> {
+		const entryState = entry.state;
+		if (entryState.kind === "removed") return DuplicationResolver.DecideIgnoreStructure;
+
+		const candidate =
+			entryState.kind === "pending"
+				? entryState.admission.pendingCandidate()
+				: entryState.candidate;
+
+		const domain = entry.domain;
+		const key = entry.key;
+		const type = candidate.type;
+		const data = candidate.get();
 		const policy = type.duplication;
 		if (policy.kind === "allow") return DuplicationResolver.DecideAddStructure;
 
-		const domain = this.domainOf(type);
+		const snapshot = this.index.snapshot(entry.domain, entry.key);
+
 		if (policy.kind === "ignore") {
-			if (this.index.size(domain, key) > 0) return DuplicationResolver.DecideIgnoreStructure;
-			else return DuplicationResolver.DecideAddStructure;
+			return this.hasOther(snapshot.entries, entry)
+				? DuplicationResolver.DecideIgnoreStructure
+				: DuplicationResolver.DecideAddStructure;
 		}
 
 		if (policy.kind === "replace") {
-			if (this.index.size(domain, key) > 0)
-				return {
-					action: "add",
-					evict: this.index.snapshot(domain, key),
-				};
-			return DuplicationResolver.DecideAddStructure;
+			const evictions = snapshot.entries.filter((x) => x !== entry);
+			return evictions.length > 0
+				? {
+						action: "add",
+						evict: evictions,
+					}
+				: DuplicationResolver.DecideAddStructure;
 		}
 
 		if (policy.kind === "reconcile") {
-			if (this.index.size(domain, key) > 0) {
-				const entry = this.index.first(domain, key)! as DuplicationEntry<TInstance>;
+			if (this.hasOther(snapshot.entries, entry)) {
+				const reconcileTarget = this.firstOther(
+					snapshot.entries,
+					entry
+				)! as DuplicationEntry<TData, TCandidate, TRuntime>;
 				return {
 					action: "reconcile",
-					reconcile: () => {
-						if (entry.state.kind === "pending")
-							entry.state.afterCommit.push(() =>
-								policy.reconcile(
-									entry.state.kind === "pending"
-										? entry.state.planned.get()
-										: entry.state.candidate,
-									data
-								)
-							);
-						else policy.reconcile(entry.state.candidate, data);
-					},
+					target: reconcileTarget,
+					reconcile: (target) => policy.reconcile(target, data),
 				};
 			} else return DuplicationResolver.DecideAddStructure;
 		}
 
 		if (policy.kind === "group") {
 			if (policy.group.policy === "ignore") {
-				if (this.index.size(domain, key) >= policy.group.maxStack)
-					return DuplicationResolver.DecideIgnoreStructure;
-				else return DuplicationResolver.DecideAddStructure;
+				let conflictCount = 0;
+				for (const conflict of snapshot.entries) {
+					if (conflict !== entry) conflictCount++;
+				}
+
+				return conflictCount >= policy.group.maxStack
+					? DuplicationResolver.DecideIgnoreStructure
+					: DuplicationResolver.DecideAddStructure;
 			}
+
 			if (policy.group.policy === "replace") {
 				if (policy.group.maxStack <= 0) return DuplicationResolver.DecideIgnoreStructure;
 
@@ -83,8 +95,8 @@ export class DuplicationResolver {
 				so we must revalidate the index hasn't changed */
 				const selector = policy.group.selector;
 				for (;;) {
-					const revision = this.index.getRevision(domain, key);
-					const conflicts = this.index.snapshot(domain, key);
+					const snapshot = this.index.snapshot(domain, key);
+					const conflicts = snapshot.entries.filter((x) => x !== entry);
 					if (conflicts.length < policy.group.maxStack)
 						return DuplicationResolver.DecideAddStructure;
 
@@ -94,11 +106,12 @@ export class DuplicationResolver {
 
 					for (let i = 1; i < conflicts.length; i++) {
 						const conflict = conflicts[i]!;
+						if (conflict === entry) continue;
 						if (
 							(selector === "oldest" && conflict.order < order) ||
 							(selector === "newest" && conflict.order >= order)
 						) {
-							rank = conflict.order;
+							rank = conflict.score();
 							order = conflict.order;
 							selectedCandidate = conflict;
 						} else {
@@ -117,12 +130,11 @@ export class DuplicationResolver {
 					}
 
 					if (policy.replaceIf(rank, policy.rank(data))) {
-						if (this.index.getRevision(domain, key) === revision)
+						if (this.index.isCurrent(snapshot))
 							// TODO: Select the full eviction set when this bucket already exceeds maxStack.
 							return { action: "add", evict: [selectedCandidate] };
-					} else {
-						if (this.index.getRevision(domain, key) === revision)
-							return DuplicationResolver.DecideIgnoreStructure;
+					} else if (this.index.isCurrent(snapshot)) {
+						return DuplicationResolver.DecideIgnoreStructure;
 					}
 				}
 			}
@@ -131,64 +143,23 @@ export class DuplicationResolver {
 		throw new Error(`Invalid policy kind "${policy.kind}"`);
 	}
 
-	resolve<TInstance extends DuplicationCandidate<TData>, TData>(
-		plannedInstanceSupplier: () => PlannedInstance<TInstance> | undefined,
-		type: DuplicableType<TInstance, TData>,
-		data: TData,
-		key: string | undefined
-	): DuplicationResult<TInstance, TData> {
-		const decision = this.decide(type, data, key);
-		if (decision.action === "ignore") return { result: "ignored" };
-		if (decision.action === "reconcile") {
-			decision.reconcile();
-			return { result: "reconciled" };
+	private hasOther(
+		entries: readonly AnyDuplicationEntry[],
+		incoming: AnyDuplicationEntry
+	): boolean {
+		for (const entry of entries) {
+			if (entry !== incoming) return true;
 		}
-		if (decision.action === "add") {
-			const plannedInstance = plannedInstanceSupplier();
-			if (!plannedInstance) return { result: "ignored" };
-			let score: (() => number) | undefined = undefined;
-			if (type.duplication.kind === "group") {
-				const rank = type.duplication.rank;
-				score = () => rank(plannedInstance.get().get());
-			}
-
-			const plannedEntry = this.index.plan(this.domainOf(type), key, plannedInstance, score);
-			const afterCommitCallbacks =
-				plannedEntry.entry.state.kind === "pending"
-					? plannedEntry.entry.state.afterCommit
-					: [];
-
-			try {
-				decision.evict.forEach((entry) => entry.evict());
-				const liveEntry = plannedEntry.commit();
-
-				if (!liveEntry) return { result: "ignored" };
-
-				return {
-					result: "added",
-					instance: liveEntry.candidate,
-					unregister: () => liveEntry.evict(),
-					publish: () => {
-						try {
-							afterCommitCallbacks.forEach((callback) =>
-								callback(liveEntry.candidate)
-							);
-							if (liveEntry.entry.active) liveEntry.publish();
-							else liveEntry.evict();
-						} catch (e) {
-							liveEntry.evict();
-							throw e;
-						}
-					},
-				};
-			} finally {
-				plannedEntry.evict();
-			}
-		}
-		throw new Error("Unknown decision action");
+		return false;
 	}
 
-	private domainOf(type: AnyDuplicableType): object {
-		return type.duplication.kind === "group" ? type.duplication.group : type;
+	private firstOther<TEntry extends AnyDuplicationEntry>(
+		entries: readonly TEntry[],
+		incoming: AnyDuplicationEntry
+	): TEntry | undefined {
+		for (const entry of entries) {
+			if (entry !== incoming) return entry;
+		}
+		return undefined;
 	}
 }

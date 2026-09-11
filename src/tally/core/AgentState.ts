@@ -1,4 +1,5 @@
 import { type Property } from "../property/Property.js";
+import { AdmissionCoordinator } from "../state/AdmissionCoordinator.js";
 import type { AnyDescriptor, Descriptor } from "../state/descriptor/Descriptor.js";
 import type { DescriptorHandler } from "../state/descriptor/DescriptorHandler.js";
 import type { DescriptorOption } from "../state/descriptor/DescriptorOption.js";
@@ -25,11 +26,15 @@ export class AgentState<TEntity> {
 	private readonly counter = new IdCounter();
 	private readonly duplicationIndex = new DuplicationIndex();
 	private readonly duplicationResolver = new DuplicationResolver(this.duplicationIndex);
+	private readonly admissionCoordinator = new AdmissionCoordinator(
+		this.duplicationIndex,
+		this.duplicationResolver
+	);
 
-	private readonly sources = new SourceManager(this.counter, this.duplicationResolver);
+	private readonly sources = new SourceManager(this.counter, this.admissionCoordinator);
 	private readonly descriptors = new DescriptorManager(
 		this.counter,
-		this.duplicationResolver,
+		this.admissionCoordinator,
 		this.sources
 	);
 

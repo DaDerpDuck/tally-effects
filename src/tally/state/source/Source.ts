@@ -16,10 +16,10 @@ export interface Source<TData = unknown> extends DuplicationCandidate<TData> {
 	readonly key: string | undefined;
 	readonly provenance: StateProvenance;
 
-	set(data: TData): void;
 	/** Gets the current data the Source is using for its modifier contribution. */
 	get(): TData;
-	onUpdate(callback: (self: this) => void): Disconnect;
-	onDestroy(callback: (self: this) => void): Disconnect;
+	set(data: TData): void;
 	destroy(): void;
+	onUpdate(callback: (self: Source<TData>) => void): Disconnect;
+	onDestroy(callback: (self: Source<TData>) => void): Disconnect;
 }

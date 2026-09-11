@@ -1,15 +1,12 @@
 import { ModifierRegistry, type ModifierHandle } from "../modifier/ModifierRegistry.js";
 import { OrderingDomain } from "../modifier/OrderingDomain.js";
 import type { AnyProperty, Property } from "../property/Property.js";
-import type {
-	DuplicationResolver,
-	DuplicationResult,
-} from "../state/duplication/DuplicationResolver.js";
-import type { PlannedInstance } from "../state/PlannedInstance.js";
+import type { AdmissionCoordinator } from "../state/AdmissionCoordinator.js";
+import type { AdmissionPlan } from "../state/AdmissionPlan.js";
 import type { StateProvenance } from "../state/Provenance.js";
-import { PlannedSource } from "../state/source/PlannedSource.js";
 import type { Source } from "../state/source/Source.js";
-import { SourceInstance } from "../state/source/SourceInstance.js";
+import type { SourceContribution } from "../state/source/SourceContribution.js";
+import { SourceRuntime, type SourceHost } from "../state/source/SourceInstance.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType, type AnySourceType } from "../state/source/SourceType.js";
 import type { Disconnect } from "../util/Disconnect.js";
@@ -23,7 +20,7 @@ export class SourceManager {
 	private static readonly EmptySet: ReadonlySet<unknown> = new Set();
 
 	private readonly modifierRegistry = new ModifierRegistry();
-	private readonly sourceModifiersMap = new Map<Source, readonly ModifierHandle[]>();
+	private readonly sources = new Set<Source>();
 	private readonly sourceMap = new Map<AnySourceType, Set<Source>>();
 
 	private readonly propertyCallbacks = new Map<AnyProperty, Set<PropertyCallback>>();
@@ -38,7 +35,7 @@ export class SourceManager {
 
 	constructor(
 		private readonly counter: IdCounter,
-		private readonly duplicationResolver: DuplicationResolver
+		private readonly admission: AdmissionCoordinator
 	) {}
 
 	addSource<TData>(
@@ -46,28 +43,10 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		let result: DuplicationResult<Source<TData>, TData>;
-		// inlined batch
-		this.mutationDepth++;
-		try {
-			result = this.duplicationResolver.resolve(
-				() => this.prepareSource(type, data, options),
-				type,
-				data,
-				options?.key
-			);
-		} finally {
-			this.mutationDepth--;
-			if (this.mutationDepth === 0) this.resolveProperties();
-		}
-
-		if (result.result === "added") {
-			result.instance.onDestroy(() => result.unregister());
-			result.publish();
-			return result.instance;
-		} else {
-			return undefined;
-		}
+		const announce = this.batch(() => {
+			return this.admission.admit(this.planSource(type, data, options));
+		});
+		return announce?.();
 	}
 
 	get<T>(property: Property<T>): T {
@@ -82,7 +61,7 @@ export class SourceManager {
 	}
 
 	getSources(type?: SourceType<unknown>): ReadonlySet<Source> {
-		if (type === undefined) return new Set(this.sourceModifiersMap.keys());
+		if (type === undefined) return this.sources;
 		return (this.sourceMap.get(type) ?? SourceManager.EmptySet) as ReadonlySet<Source>;
 	}
 
@@ -133,79 +112,80 @@ export class SourceManager {
 	}
 
 	destroyAllSources() {
-		this.batch(() => this.sourceModifiersMap.forEach((_, source) => source.destroy()));
-		this.sourceModifiersMap.clear();
+		this.batch(() => this.sources.forEach((source) => source.destroy()));
+		this.sources.clear();
 		this.modifierRegistry.clear();
 		this.resolvedProperties.clear();
 		this.dirtyProperties.clear();
 	}
 
-	private prepareSource<TData>(
+	private planSource<TData>(
 		type: SourceType<TData>,
 		data: TData,
 		options?: SourceOption
-	): PlannedSource<TData> {
-		return new PlannedSource({
-			createSource: () => this.createSource(type, data, options),
-			applyModifiers: (source) =>
-				this.applyModifiers(type, source.priority, source.provenance, data),
+	): AdmissionPlan<TData, Source<TData>, SourceRuntime<TData>> {
+		return {
+			type,
+			key: options?.key,
+			data,
+			createRuntime: (lease) => {
+				const id = this.counter.next();
+				const priority = options?.priority ?? type.priority;
+				const key = options?.key;
+				const provenance = options?.provenance ?? {
+					domain: "local",
+					sequence: id,
+				};
+
+				return new SourceRuntime(
+					lease,
+					{ id, type, priority, key, provenance, data },
+					this.createHost(type)
+				);
+			},
+		};
+	}
+
+	private createHost<TData>(type: SourceType<TData>): SourceHost<TData> {
+		return {
+			contributeModifiers: (type, data) => this.contributeModifiers(type, data),
+			applyModifiers: (contributions, source) =>
+				this.applyModifiers(contributions, source.priority, source.provenance),
 			discardModifiers: (handles) => this.clearModifierHandles(handles),
+			changeModifiers: (source, oldHandles, newContributions) => {
+				for (const handle of oldHandles) this.dirtyProperties.add(handle.property);
+				this.clearModifierHandles(oldHandles);
+
+				const newHandles = this.applyModifiers(
+					newContributions,
+					source.priority,
+					source.provenance
+				);
+				for (const handle of newHandles) this.dirtyProperties.add(handle.property);
+				this.requestResolve();
+				return newHandles;
+			},
 			installSource: (source, handles) => {
-				this.sourceModifiersMap.set(source, handles);
+				this.sources.add(source);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
 				this.requestResolve();
 
 				getOrInsertComputed(this.sourceMap, type, () => new Set()).add(source);
-
-				let isDestroyed = false;
-				source.onUpdate(() => {
-					for (const handle of handles) this.dirtyProperties.add(handle.property);
-					this.clearModifierHandles(handles);
-					const nextHandles = this.applyModifiers(
-						type,
-						source.priority,
-						source.provenance,
-						source.get()
-					);
-					// reentrant code may have destroyed this source
-					if (isDestroyed) {
-						this.clearModifierHandles(nextHandles);
-						return;
-					}
-					handles = nextHandles;
-					this.sourceModifiersMap.set(source, handles);
-					for (const handle of handles) this.dirtyProperties.add(handle.property);
-					this.requestResolve();
-					this.sourceUpdatedCallbacks.forEach((callback) => callback(source));
-				});
-
-				source.onDestroy(() => {
-					isDestroyed = true;
-					for (const handle of handles) this.dirtyProperties.add(handle.property);
-					this.clearModifierHandles(handles);
-					this.sourceModifiersMap.delete(source);
-					this.sourceMap.get(source.type)?.delete(source);
-					this.requestResolve();
-				});
 			},
-			publish: (source) => {
-				source.onDestroy(() =>
-					this.sourceRemovedCallbacks.forEach((callback) => callback(source))
-				);
-				this.sourceAddedCallbacks.forEach((callback) => callback(source));
+			uninstallSource: (source, handles) => {
+				for (const handle of handles) this.dirtyProperties.add(handle.property);
+				this.clearModifierHandles(handles);
+				this.sources.delete(source);
+				this.sourceMap.get(source.type)?.delete(source);
+				this.requestResolve();
 			},
-		});
-	}
-
-	private createSource<TData>(type: SourceType<TData>, data: TData, options?: SourceOption) {
-		const priority = options?.priority ?? type.priority;
-		const sourceId = this.counter.next();
-		const provenance = options?.provenance ?? {
-			domain: "local",
-			sequence: sourceId,
+			announceAdded: (source) =>
+				this.sourceAddedCallbacks.forEach((callback) => callback(source)),
+			announceUpdated: (source) =>
+				this.sourceUpdatedCallbacks.forEach((callback) => callback(source)),
+			announceDestroyed: (source) =>
+				this.sourceRemovedCallbacks.forEach((callback) => callback(source)),
 		};
-		const source = new SourceInstance(sourceId, type, priority, options?.key, provenance, data);
-		return source;
 	}
 
 	private requestResolve() {
@@ -228,13 +208,16 @@ export class SourceManager {
 		this.dirtyProperties.clear();
 	}
 
-	private applyModifiers<TData>(
-		type: SourceType<TData>,
+	private contributeModifiers<TData>(type: SourceType<TData>, data: TData): SourceContribution {
+		return type.contribute(data);
+	}
+
+	private applyModifiers(
+		contribution: SourceContribution,
 		priority: number,
-		provenance: StateProvenance,
-		data: TData
+		provenance: StateProvenance
 	): ModifierHandle[] {
-		return type.contribute(data).map((modifier, index) =>
+		return contribution.map((modifier, index) =>
 			modifier.applyTo(this.modifierRegistry, {
 				priority,
 				domain:

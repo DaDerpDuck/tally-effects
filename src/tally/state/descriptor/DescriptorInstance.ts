@@ -1,57 +1,131 @@
 import type { DescriptorId } from "../../replication/descriptor/ReplicatedDescriptor.js";
+import { CleanupStack } from "../../util/CleanupStack.js";
 import type { Disconnect } from "../../util/Disconnect.js";
+import type { AdmissionRuntime, RuntimeOwnership } from "../AdmissionRuntime.js";
+import type { AdmissionLease } from "../AdmissionTransaction.js";
 import type { StateProvenance } from "../Provenance.js";
 import type { Source } from "../source/Source.js";
 import type { Descriptor } from "./Descriptor.js";
 import type { DescriptorBinding } from "./DescriptorBinding.js";
 import type { DescriptorType } from "./DescriptorType.js";
 
-export class DescriptorInstance<TDescriptorData, TSourceData> implements Descriptor<
-	TDescriptorData,
-	TSourceData
-> {
-	private readonly updateCallbacks = new Set<(self: this) => void>();
-	private readonly destroyCallbacks = new Set<(self: this) => void>();
+export interface DescriptorHost<TDescriptorData, TSourceData> {
+	tryBind(derivedSources: Source[]): DescriptorBinding<TDescriptorData, TSourceData> | undefined;
+	installDescriptor(descriptor: DescriptorInstance<TDescriptorData, TSourceData>): void;
+	uninstallDescriptor(descriptor: DescriptorInstance<TDescriptorData, TSourceData>): void;
+	announceAdded(source: DescriptorInstance<TDescriptorData, TSourceData>): void;
+	announceUpdated(source: DescriptorInstance<TDescriptorData, TSourceData>): void;
+	announceDestroyed(source: DescriptorInstance<TDescriptorData, TSourceData>): void;
+}
+
+export interface DescriptorIdentity<TDescriptorData, TSourceData> {
+	readonly id: DescriptorId;
+	readonly type: DescriptorType<TDescriptorData, TSourceData>;
+	readonly key: string | undefined;
+	readonly provenance: StateProvenance;
+	readonly data: TDescriptorData;
+}
+
+interface DescriptorController<TDescriptorData, TSourceData> {
+	get(): TDescriptorData;
+	getSource(): Source<TSourceData>;
+	set(data: TDescriptorData): void;
+	destroy(): void;
+	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect;
+	onDestroy(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect;
+}
+
+export class DescriptorRuntime<TDescriptorData, TSourceData>
+	implements DescriptorController<TDescriptorData, TSourceData>, AdmissionRuntime<TDescriptorData>
+{
+	public readonly instance: DescriptorInstance<TDescriptorData, TSourceData>;
+	public readonly type: DescriptorType<TDescriptorData, TSourceData>;
 	private readonly derivedSources = new Array<Source>();
+	private readonly updateCallbacks = new Set<
+		(self: Descriptor<TDescriptorData, TSourceData>) => void
+	>();
+	private readonly destroyCallbacks = new Set<
+		(self: Descriptor<TDescriptorData, TSourceData>) => void
+	>();
+	private ownership: RuntimeOwnership;
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
-	private triedToBind = false;
-	private destroyed = false;
-	private bindingInProgress = false;
+	private data: TDescriptorData;
+	private installed = false;
+	private announced = false;
 
 	constructor(
-		public readonly id: DescriptorId,
-		public readonly type: DescriptorType<TDescriptorData, TSourceData>,
-		public readonly key: string | undefined,
-		public readonly provenance: StateProvenance,
-		private readonly bindingProvider: (
-			derivedSources: Source[]
-		) => DescriptorBinding<TDescriptorData, TSourceData>,
-		private data: TDescriptorData
-	) {}
-
-	tryBind(): DescriptorBinding<TDescriptorData, TSourceData> | undefined {
-		if (this.triedToBind) return this.binding;
-		this.triedToBind = true;
-		this.bindingInProgress = true;
-		try {
-			const binding = this.bindingProvider(this.derivedSources);
-			this.binding = binding;
-			// reentrancy may have caused this descriptor to be destroyed
-			return this.destroyed ? undefined : binding;
-		} finally {
-			this.bindingInProgress = false;
-			if (this.destroyed) this.cleanupBinding();
-		}
+		lease: AdmissionLease,
+		identity: DescriptorIdentity<TDescriptorData, TSourceData>,
+		private readonly host: DescriptorHost<TDescriptorData, TSourceData>
+	) {
+		this.type = identity.type;
+		this.data = identity.data;
+		this.ownership = {
+			kind: "admitting",
+			lease,
+		};
+		this.instance = new DescriptorInstance(identity, this);
 	}
 
-	set(data: TDescriptorData) {
-		this.assertAlive();
-		if (this.type.dataEquals(this.data, data)) return;
-		this.data = data;
-		this.binding?.update(data);
-		for (const callback of this.updateCallbacks) {
-			callback(this);
+	prepare(): void {
+		// descriptor doesn't have any prepare step
+	}
+
+	install(): void {
+		if (this.ownership.kind !== "admitting")
+			throw new Error("Cannot install a non-admitting runtime");
+
+		const lease = this.ownership.lease;
+		const binding = this.host.tryBind(this.derivedSources);
+
+		// The handler may have called descriptor.destroy().
+		if (lease.isTerminal()) {
+			binding?.destroy();
+			return;
 		}
+
+		if (!binding) {
+			lease.cancel();
+			return;
+		}
+
+		this.binding = binding;
+
+		this.host.installDescriptor(this.instance);
+		this.installed = true;
+	}
+
+	announceAdded(): void {
+		if (this.ownership.kind !== "admitting")
+			throw new Error("Cannot announce a non-admitting runtime");
+		if (this.announced || this.ownership.lease.isTerminal()) return;
+		this.announced = true; // set before callbacks, they may destroy this source
+		this.host.announceAdded(this.instance);
+	}
+
+	markLive(unlink: () => void): void {
+		if (this.ownership.kind !== "admitting")
+			throw new Error("Cannot install a non-admitting runtime");
+		if (!this.installed || !this.announced || this.ownership.lease.isTerminal())
+			throw new Error("Cannot complete an incomplete admission");
+		this.ownership = {
+			kind: "live",
+			unlink,
+		};
+	}
+
+	rollbackAdmission(): void {
+		if (this.ownership.kind !== "admitting") return;
+		if (this.installed) this.host.uninstallDescriptor(this.instance);
+		this.cleanupBinding();
+
+		this.ownership = { kind: "destroyed" };
+		this.updateCallbacks.clear();
+		if (this.announced) {
+			this.destroyCallbacks.forEach((callback) => callback(this.instance));
+			this.host.announceDestroyed(this.instance);
+		}
+		this.destroyCallbacks.clear();
 	}
 
 	get(): TDescriptorData {
@@ -63,38 +137,113 @@ export class DescriptorInstance<TDescriptorData, TSourceData> implements Descrip
 		return this.binding.source;
 	}
 
-	onUpdate(callback: (self: this) => void): Disconnect {
-		if (this.destroyed) return () => {};
+	set(data: TDescriptorData) {
+		this.assertAlive();
+		if (this.type.dataEquals(this.data, data)) return;
+		this.data = data;
+		this.binding?.update(data);
+		if (this.isInactive()) return;
+		this.updateCallbacks.forEach((callback) => callback(this.instance));
+		if (this.isInactive()) return;
+		this.host.announceUpdated(this.instance);
+	}
+
+	destroy() {
+		if (this.ownership.kind === "destroyed") return;
+
+		if (this.ownership.kind === "admitting") {
+			this.ownership.lease.cancel();
+			return;
+		}
+
+		const { unlink } = this.ownership;
+		this.ownership = { kind: "destroyed" };
+
+		unlink();
+		this.host.uninstallDescriptor(this.instance);
+		this.cleanupBinding();
+
+		this.updateCallbacks.clear();
+		// TODO: best effort callback
+		this.destroyCallbacks.forEach((callback) => callback(this.instance));
+		this.destroyCallbacks.clear();
+		this.host.announceDestroyed(this.instance);
+	}
+
+	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
+		if (this.ownership.kind === "destroyed") return () => {};
 		this.updateCallbacks.add(callback);
 		return () => {
 			this.updateCallbacks.delete(callback);
 		};
 	}
 
-	onDestroy(callback: (self: this) => void): Disconnect {
-		if (this.destroyed) return () => {};
+	onDestroy(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
+		if (this.ownership.kind === "destroyed") return () => {};
 		this.destroyCallbacks.add(callback);
 		return () => {
 			this.destroyCallbacks.delete(callback);
 		};
 	}
 
-	destroy() {
-		if (this.destroyed) return;
-		this.destroyed = true;
-		this.destroyCallbacks.forEach((callback) => callback(this));
-		this.updateCallbacks.clear();
-		this.destroyCallbacks.clear();
-		if (!this.bindingInProgress) this.cleanupBinding();
+	private assertAlive() {
+		if (this.ownership.kind === "destroyed") throw new Error("Descriptor has been destroyed");
 	}
 
-	private assertAlive() {
-		if (this.destroyed) throw new Error("Descriptor has been destroyed");
+	private isInactive() {
+		return (
+			this.ownership.kind === "destroyed" ||
+			(this.ownership.kind === "admitting" && this.ownership.lease.isTerminal())
+		);
 	}
 
 	private cleanupBinding() {
 		this.binding?.destroy();
 		this.derivedSources.forEach((source) => source.destroy());
 		this.derivedSources.length = 0;
+	}
+}
+
+export class DescriptorInstance<TDescriptorData, TSourceData> implements Descriptor<
+	TDescriptorData,
+	TSourceData
+> {
+	public readonly id: number;
+	public readonly type: DescriptorType<TDescriptorData, TSourceData>;
+	public readonly key: string | undefined;
+	public readonly provenance: StateProvenance;
+
+	constructor(
+		identity: DescriptorIdentity<TDescriptorData, TSourceData>,
+		private readonly runtime: DescriptorRuntime<TDescriptorData, TSourceData>
+	) {
+		this.id = identity.id;
+		this.type = identity.type;
+		this.key = identity.key;
+		this.provenance = identity.provenance;
+	}
+
+	get(): TDescriptorData {
+		return this.runtime.get();
+	}
+
+	getSource(): Source<TSourceData> {
+		return this.runtime.getSource();
+	}
+
+	set(data: TDescriptorData) {
+		this.runtime.set(data);
+	}
+
+	destroy() {
+		this.runtime.destroy();
+	}
+
+	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
+		return this.runtime.onUpdate(callback);
+	}
+
+	onDestroy(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
+		return this.runtime.onDestroy(callback);
 	}
 }

@@ -5,15 +5,9 @@ import {
 	defineNumberProperty,
 	defineSourceType,
 	DuplicationGroup,
+	type Descriptor,
 	type Source,
 } from "../src/index.js";
-import { DuplicationIndex } from "../../src/tally/state/duplication/DuplicationIndex.js";
-import { DuplicationResolver } from "../../src/tally/state/duplication/DuplicationResolver.js";
-import type {
-	DuplicableType,
-	DuplicationCandidate,
-} from "../../src/tally/state/duplication/DuplicationCandidate.js";
-import type { PlannedInstance } from "../../src/tally/state/PlannedInstance.js";
 
 describe("duplication admission transactions", () => {
 	it("preserves a group's stack limit when an eviction callback reenters admission", () => {
@@ -329,47 +323,22 @@ describe("duplication admission transactions", () => {
 	});
 
 	it("cancels the incoming reservation when eviction throws", () => {
-		type Candidate = DuplicationCandidate<number>;
-
-		const type = {
-			duplication: { kind: "replace" },
-		} as unknown as DuplicableType<Candidate, number>;
-		const index = new DuplicationIndex();
-		const resolver = new DuplicationResolver(index);
-		const plan = (candidate: Candidate, onCancel: () => void): PlannedInstance<Candidate> => ({
-			get: () => candidate,
-			commit: () => candidate,
-			publish: () => {},
-			cancel: onCancel,
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingEvictionSource",
+			priority: 100,
+			duplication: { policy: "replace" },
+			contribute: () => [],
 		});
-		const throwingCandidate: Candidate = {
-			type,
-			get: () => 1,
-			destroy: () => {
-				throw new Error("destroy failed");
-			},
-		};
-		const first = resolver.resolve(() => plan(throwingCandidate, () => {}), type, 1, undefined);
-		if (first.result === "added") first.publish();
+		const agent = new AgentState(undefined);
+		const first = agent.addSource(SourceType, 1)!;
+		first.onDestroy(() => {
+			throw new Error("destroy failed");
+		});
 
-		let cancelled = false;
-		const incomingCandidate: Candidate = {
-			type,
-			get: () => 2,
-			destroy: () => {},
-		};
+		expect(() => agent.addSource(SourceType, 2)).toThrow("destroy failed");
+		expect(agent.getSources(SourceType)).toEqual(new Set());
 
-		expect(() =>
-			resolver.resolve(
-				() => plan(incomingCandidate, () => (cancelled = true)),
-				type,
-				2,
-				undefined
-			)
-		).toThrow("destroy failed");
-
-		expect(cancelled).toBe(true);
-		expect(index.view(type, undefined)).toEqual([]);
+		expect(agent.addSource(SourceType, 3)).toBeDefined();
 	});
 
 	it("unregisters a Source before removed observers attempt replacement", () => {
@@ -568,6 +537,103 @@ describe("duplication admission transactions", () => {
 		expect(added).not.toHaveBeenCalled();
 		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
 		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
+	});
+
+	it("does not reconcile a Source destroyed before pending reconciliation is published", () => {
+		const Property = defineNumberProperty({
+			name: "DestroyedPendingReconciliationProperty",
+			defaultValue: 0,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		let reentered = false;
+		const SourceType = defineSourceType<number>({
+			name: "DestroyedPendingReconciliationSource",
+			priority: 100,
+			duplication: {
+				policy: "reconcile",
+				reconcile: (existing, incoming) => existing.set(incoming),
+			},
+			contribute: (value) => {
+				if (!reentered) {
+					reentered = true;
+					expect(agent.addSource(SourceType, 2)).toBeUndefined();
+				}
+				return [Property.add(value)];
+			},
+		});
+		agent.onPropertyChanged(Property, () => {
+			for (const source of agent.getSources(SourceType)) source.destroy();
+		});
+
+		expect(agent.addSource(SourceType, 1)).toBeUndefined();
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+	});
+
+	it("unregisters a Descriptor before its derived Source removal observers reenter", () => {
+		const OutputType = defineSourceType<number>({
+			name: "DerivedRemovalReplacementOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "DerivedRemovalReplacementDescriptor",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+		let replacement: Descriptor<number, number> | undefined;
+		const disconnect = agent.onSourceRemoved(() => {
+			disconnect();
+			replacement = agent.addDescriptor(DescriptorType, 2);
+		});
+
+		descriptor.destroy();
+
+		expect(replacement).toBeDefined();
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set([replacement]));
+	});
+
+	it("cleans up a Descriptor when its binding destroy callback throws", () => {
+		const OutputType = defineSourceType<number>({
+			name: "ThrowingDestroyDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ThrowingDestroyDescriptor",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState(undefined);
+		let shouldThrow = true;
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => {
+					if (shouldThrow) throw new Error("binding destroy failed");
+					source.destroy();
+				},
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+
+		expect(() => descriptor.destroy()).toThrow("binding destroy failed");
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+
+		shouldThrow = false;
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
 

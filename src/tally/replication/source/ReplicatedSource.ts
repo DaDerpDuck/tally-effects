@@ -7,7 +7,7 @@ export interface ReplicatedSource {
 	readonly id: SourceId;
 	readonly type: string;
 	readonly priority: number;
-	readonly key: string | undefined;
+	readonly key?: string | undefined;
 	readonly data: ReplicationValue;
 }
 
