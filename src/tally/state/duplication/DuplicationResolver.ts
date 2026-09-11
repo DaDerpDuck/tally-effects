@@ -168,9 +168,9 @@ export class DuplicationResolver {
 					result: "added",
 					publish: () => {
 						try {
-							afterCommitCallbacks.forEach((callback) =>
-								callback(liveEntry.candidate)
-							);
+							afterCommitCallbacks.forEach((callback) =>{
+								if (liveEntry.entry.active) callback(liveEntry.candidate)
+							});
 							if (liveEntry.entry.active) {
 								liveEntry.publish();
 								return liveEntry.entry.active ? liveEntry.candidate : undefined;
