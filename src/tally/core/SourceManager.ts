@@ -162,7 +162,7 @@ export class SourceManager {
 					if (isDestroyed) {
 						this.clearModifierHandles(nextHandles);
 						return;
-					};
+					}
 					handles = nextHandles;
 					this.sourceModifiersMap.set(source, handles);
 					for (const handle of handles) this.dirtyProperties.add(handle.property);
@@ -180,10 +180,10 @@ export class SourceManager {
 				});
 			},
 			publish: (source) => {
-				this.sourceAddedCallbacks.forEach((callback) => callback(source));
 				source.onDestroy(() =>
 					this.sourceRemovedCallbacks.forEach((callback) => callback(source))
 				);
+				this.sourceAddedCallbacks.forEach((callback) => callback(source));
 			},
 		});
 	}

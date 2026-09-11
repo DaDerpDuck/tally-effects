@@ -162,9 +162,11 @@ export class DuplicationResolver {
 					unregister: () => liveEntry.evict(),
 					publish: () => {
 						try {
-							afterCommitCallbacks.forEach((callback) => callback(liveEntry.candidate));
+							afterCommitCallbacks.forEach((callback) =>
+								callback(liveEntry.candidate)
+							);
 							liveEntry.publish();
-						} catch(e) {
+						} catch (e) {
 							liveEntry.evict();
 							throw e;
 						}

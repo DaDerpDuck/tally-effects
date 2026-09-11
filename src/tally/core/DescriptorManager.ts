@@ -121,17 +121,19 @@ export class DescriptorManager<TEntity> {
 			installDescriptor: (descriptor) => {
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
 
-				descriptor.onUpdate(() =>
-					this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor))
-				);
+				descriptor.onUpdate(() => {
+					this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor));
+				});
 
-				descriptor.onDestroy(() => this.descriptorMap.get(type)?.delete(descriptor));
+				descriptor.onDestroy(() => {
+					this.descriptorMap.get(type)?.delete(descriptor);
+				});
 			},
 			publish: (descriptor) => {
+				descriptor.onDestroy(() => {
+					this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
+				});
 				this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor));
-				descriptor.onDestroy(() =>
-					this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor))
-				);
 			},
 		});
 	}
