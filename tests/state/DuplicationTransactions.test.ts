@@ -116,6 +116,38 @@ describe("duplication admission transactions", () => {
 		expect(agent.get(Property)).toBe(2);
 	});
 
+	it("rolls back modifiers from a Source destroyed during its update", () => {
+		const Property = defineNumberProperty({
+			name: "DestroyedUpdatingSourceProperty",
+			defaultValue: 0,
+		});
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 1,
+			selector: "oldest",
+		});
+		let reentered = false;
+		const agent = new AgentState<undefined>(undefined);
+		const SourceType = defineSourceType<number>({
+			name: "DestroyedUpdatingSource",
+			priority: 100,
+			duplication: group.member(),
+			contribute: (value) => {
+				if (value === 3 && !reentered) {
+					reentered = true;
+					agent.addSource(SourceType, 2);
+				}
+				return [Property.add(value)];
+			},
+		});
+
+		const first = agent.addSource(SourceType, 1)!;
+		first.set(3);
+
+		expect([...agent.getSources(SourceType)].map((source) => source.get())).toEqual([2]);
+		expect(agent.get(Property)).toBe(2);
+	});
+
 	it("removes a failed Source reservation so admission can be retried", () => {
 		let shouldThrow = true;
 		const SourceType = defineSourceType<number>({
