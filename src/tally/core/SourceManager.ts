@@ -54,12 +54,8 @@ export class SourceManager {
 				options?.key
 			);
 
-			if (result.result === "added") {
-				result.publish();
-				return result.instance;
-			} else {
-				return undefined;
-			}
+			if (result.result === "added") return result.publish();
+			else return undefined;
 		});
 	}
 

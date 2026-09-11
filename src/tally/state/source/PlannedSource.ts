@@ -6,7 +6,11 @@ export interface SourcePlanHost<TData> {
 	createSource(): SourceInstance<TData>;
 	applyModifiers(source: SourceInstance<TData>): ModifierHandle[];
 	discardModifiers(handles: ModifierHandle[]): void;
-	installSource(source: SourceInstance<TData>, handles: ModifierHandle[], cleanup: () => void): void;
+	installSource(
+		source: SourceInstance<TData>,
+		handles: ModifierHandle[],
+		cleanup: () => void
+	): void;
 	publish(source: SourceInstance<TData>): void;
 }
 

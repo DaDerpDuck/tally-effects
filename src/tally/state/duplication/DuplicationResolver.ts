@@ -16,7 +16,7 @@ export type DuplicationDecision =
 	  };
 
 export type DuplicationResult<TInstance extends DuplicationCandidate<TData>, TData> =
-	| { readonly result: "added"; instance: TInstance; publish(): void }
+	| { readonly result: "added"; publish(): TInstance | undefined }
 	| { readonly result: "ignored" }
 	| { readonly result: "reconciled" };
 
@@ -166,14 +166,17 @@ export class DuplicationResolver {
 
 				return {
 					result: "added",
-					instance: liveEntry.candidate,
 					publish: () => {
 						try {
 							afterCommitCallbacks.forEach((callback) =>
 								callback(liveEntry.candidate)
 							);
-							if (liveEntry.entry.active) liveEntry.publish();
-							else liveEntry.evict();
+							if (liveEntry.entry.active) {
+								liveEntry.publish();
+								return liveEntry.entry.active ? liveEntry.candidate : undefined;
+							} else {
+								liveEntry.evict();
+							}
 						} catch (e) {
 							liveEntry.evict();
 							throw e;

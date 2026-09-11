@@ -3,7 +3,10 @@ import type { DescriptorInstance } from "./DescriptorInstance.js";
 
 export interface DescriptorPlanHost<TDescriptorData, TSourceData> {
 	createDescriptor(): DescriptorInstance<TDescriptorData, TSourceData>;
-	installDescriptor(descriptor: DescriptorInstance<TDescriptorData, TSourceData>, cleanup: () => void): void;
+	installDescriptor(
+		descriptor: DescriptorInstance<TDescriptorData, TSourceData>,
+		cleanup: () => void
+	): void;
 	publish(descriptor: DescriptorInstance<TDescriptorData, TSourceData>): void;
 }
 
