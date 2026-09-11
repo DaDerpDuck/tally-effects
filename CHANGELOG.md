@@ -1,5 +1,20 @@
 ## [Unreleased]
 
+### Added
+
+- Added keyed duplication for Sources and Descriptors. A string key partitions a type or
+  group duplication domain; omitted keys use the unkeyed bucket.
+- Added `DuplicationGroup` and `defineDuplicationGroup` for shared, heterogeneous
+  duplication domains with optional stack limits and ranked replacement selection.
+- Added duplication keys to replicated Source and Descriptor state so receivers preserve
+  authoritative key buckets during live-event and snapshot reconstruction.
+
+### Changed
+
+- Reworked Source and Descriptor admission around shared pending/live duplication
+  reservations so lifecycle reentrancy, replacement, reconciliation, and cancellation
+  share one policy decision.
+
 ## [0.2.0] - 2026-08-29
 
 ### Added

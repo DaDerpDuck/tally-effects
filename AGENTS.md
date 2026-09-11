@@ -170,6 +170,8 @@ that behavior.
   descriptor snapshots are applied in different orders.
 - Whenever public state gains a new identity dimension, decide explicitly whether it crosses the
   replication boundary and test live events, snapshots, serialization, and backward compatibility.
+- Duplication keys cross the replication boundary. Serializers include them for Sources and
+  Descriptors; receivers treat an absent key from a pre-key payload as the unkeyed bucket.
 
 ## Duplication and admission
 
@@ -183,10 +185,10 @@ The basic public policies are `allow`, `ignore`, `replace`, and `reconcile`:
 An add that is ignored or reconciled currently returns `undefined`. Do not change return semantics
 casually; they are part of the public API.
 
-The codebase may be between the original same-type policy implementation and the keyed/grouped
-transactional design described below. Inspect the branch before editing.
+The keyed/grouped transactional design below is the active model. Preserve its public behavior
+and its admission invariants when changing duplicate policies.
 
-### Design direction: domains, groups, and keys
+### Domains, groups, and keys
 
 - A duplication domain defines which types can conflict. A normal type uses itself as its domain.
   All members of a `DuplicationGroup` use the actual shared group object as their domain so
@@ -209,11 +211,7 @@ transactional design described below. Inspect the branch before editing.
 - Validate stack limits and selector configuration at definition time and cover invalid numeric
   inputs with tests.
 
-Whether duplication keys are replicated or intentionally local-only remains an architectural
-decision. Do not silently pick one. When it is settled, encode the choice in serialized types,
-receivers, snapshots, compatibility tests, and documentation.
-
-### Design direction: responsibility split
+### Responsibility split
 
 Keep the duplication subsystem divided along these lines:
 
