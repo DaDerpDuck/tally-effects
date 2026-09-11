@@ -143,13 +143,15 @@ export class DuplicationResolver {
 				const liveEntry = plannedEntry.commit();
 
 				if (!liveEntry) return { result: "ignored" };
-				afterCommitCallbacks.forEach((callback) => callback(liveEntry.candidate));
 
 				return {
 					result: "added",
 					instance: liveEntry.candidate,
 					unregister: () => liveEntry.evict(),
-					publish: () => liveEntry.publish(),
+					publish: () => {
+						afterCommitCallbacks.forEach((callback) => callback(liveEntry.candidate));
+						liveEntry.publish()
+					},
 				};
 			} finally {
 				plannedEntry.evict();
