@@ -46,17 +46,16 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		return this.batch(() => {
-			const result = this.duplicationResolver.resolve(
+		const result = this.batch(() => {
+			return this.duplicationResolver.resolve(
 				() => this.prepareSource(type, data, options),
 				type,
 				data,
 				options?.key
 			);
-
-			if (result.result === "added") return result.publish();
-			else return undefined;
 		});
+		if (result.result === "added") return result.publish();
+		else return undefined;
 	}
 
 	get<T>(property: Property<T>): T {

@@ -44,17 +44,16 @@ export class DescriptorManager<TEntity> {
 		data: TDescriptorData,
 		options?: DescriptorOption
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
-		return this.sources.batch(() => {
-			const result = this.duplicationResolver.resolve(
+		const result = this.sources.batch(() => {
+			return this.duplicationResolver.resolve(
 				() => this.prepareDescriptor(agent, type, data, options),
 				type,
 				data,
 				options?.key
 			);
-
-			if (result.result === "added") return result.publish();
-			else return undefined;
 		});
+		if (result.result === "added") return result.publish();
+		else return undefined;
 	}
 
 	registerDescriptorHandler<TDescriptorData, TSourceData>(
