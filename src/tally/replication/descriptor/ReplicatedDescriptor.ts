@@ -6,7 +6,7 @@ export type DescriptorId = number;
 export interface ReplicatedDescriptor {
 	readonly id: DescriptorId;
 	readonly type: string;
-	readonly key: string | undefined;
+	readonly key?: string | undefined;
 	readonly data: ReplicationValue;
 }
 
