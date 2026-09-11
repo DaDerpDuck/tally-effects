@@ -15,6 +15,7 @@ export type DuplicationEntryState<T extends DuplicationCandidate> =
 export interface AnyDuplicationEntry {
 	readonly order: number;
 	readonly score: () => number;
+	slot: number;
 	active: boolean;
 	committed: boolean;
 
@@ -27,7 +28,9 @@ export interface DuplicationEntry<
 	readonly order: number;
 	readonly score: () => number;
 	state: DuplicationEntryState<T>;
+	slot: number;
 	active: boolean;
+	committed: boolean;
 
 	evict(): void;
 }

@@ -57,16 +57,18 @@ export class DuplicationIndex {
 				planned: plannedInstance,
 				afterCommit: [],
 			},
+			slot: bucket.entries.length,
 			active: true,
 			committed: false,
 
 			evict() {
 				if (!this.active) return;
 				this.active = false;
-				const index = bucket.entries.findIndex((e) => Object.is(e, this));
-				if (index < 0) return;
-				bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
+				if (this.slot < 0) return;
+				bucket.entries[this.slot] = bucket.entries[bucket.entries.length - 1]!;
+				bucket.entries[this.slot]!.slot = this.slot;
 				bucket.entries.pop();
+				this.slot = -1;
 				bucket.shrink();
 				self.revision++;
 				if (this.state.kind === "pending") this.state.planned.cancel();
