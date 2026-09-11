@@ -15,12 +15,17 @@ interface DuplicationBucket {
 
 export class DuplicationIndex {
 	private static readonly EmptyArray = new Array<AnyDuplicationEntry>(0);
+	private revision = 0;
 	private order = 0;
 
 	private readonly duplicationStruct = {
 		unkeyed: new Map<object, AnyDuplicationEntry[]>(),
 		keyed: new Map<object, Map<string, AnyDuplicationEntry[]>>(),
 	} as const;
+
+	getRevision(): number {
+		return this.revision;
+	}
 
 	get(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
 		if (key === undefined)
@@ -42,6 +47,8 @@ export class DuplicationIndex {
 	): PlannedDuplicationEntryHandle<TInstance> {
 		const bucket = this.getOrCreateBucket(domain, key);
 		const entryOrder = this.order++;
+		// eslint-disable-next-line @typescript-eslint/no-this-alias
+		const self = this;
 		const stableEntry: DuplicationEntry<TInstance> = {
 			order: entryOrder,
 			score: score ?? (() => entryOrder),
@@ -61,6 +68,7 @@ export class DuplicationIndex {
 				bucket.entries[index] = bucket.entries[bucket.entries.length - 1]!;
 				bucket.entries.pop();
 				bucket.shrink();
+				self.revision++;
 				if (this.state.kind === "pending") this.state.planned.cancel();
 				else this.state.candidate.destroy();
 			},
@@ -116,6 +124,7 @@ export class DuplicationIndex {
 		};
 
 		bucket.entries.push(stableEntry);
+		this.revision++;
 		return plannedHandle;
 	}
 

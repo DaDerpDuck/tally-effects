@@ -79,36 +79,45 @@ export class DuplicationResolver {
 			}
 			if (policy.group.policy === "replace") {
 				if (policy.group.maxStack <= 0) return DuplicationResolver.DecideIgnoreStructure;
-				if (conflicts.length < policy.group.maxStack)
-					return DuplicationResolver.DecideAddStructure;
 
+				/* User-provided rank/replaceIf methods may cause reentrant behavior,
+				so we must revalidate the index hasn't changed */
 				const selector = policy.group.selector;
-				let selectedCandidate = conflicts.values().next().value!;
-				let rank = selectedCandidate.score();
-				let order = selectedCandidate.order;
+				for (;;) {
+					const revision = this.index.getRevision();
+					const conflicts = this.index.get(domain, key);
+					if (conflicts.length < policy.group.maxStack)
+						return DuplicationResolver.DecideAddStructure;
 
-				for (const conflict of conflicts) {
-					const cRank = conflict.score();
+					let selectedCandidate = conflicts.values().next().value!;
+					let rank = selectedCandidate.score();
+					let order = selectedCandidate.order;
 
-					if (
-						(selector === "oldest" && conflict.order < order) ||
-						(selector === "newest" && conflict.order >= order) ||
-						(selector === "lowest" &&
-							(cRank < rank || (cRank === rank && conflict.order < order))) ||
-						(selector === "highest" &&
-							(cRank > rank || (cRank === rank && conflict.order >= order)))
-					) {
-						rank = cRank;
-						order = conflict.order;
-						selectedCandidate = conflict;
+					for (const conflict of conflicts) {
+						const cRank = conflict.score();
+
+						if (
+							(selector === "oldest" && conflict.order < order) ||
+							(selector === "newest" && conflict.order >= order) ||
+							(selector === "lowest" &&
+								(cRank < rank || (cRank === rank && conflict.order < order))) ||
+							(selector === "highest" &&
+								(cRank > rank || (cRank === rank && conflict.order >= order)))
+						) {
+							rank = cRank;
+							order = conflict.order;
+							selectedCandidate = conflict;
+						}
 					}
-				}
 
-				if (policy.replaceIf(rank, policy.rank(data))) {
-					// TODO: Trim bucket size if needed
-					return { action: "add", evict: [selectedCandidate] };
-				} else {
-					return DuplicationResolver.DecideIgnoreStructure;
+					if (policy.replaceIf(rank, policy.rank(data))) {
+						if (this.index.getRevision() === revision)
+							// TODO: Trim bucket size if needed
+							return { action: "add", evict: [selectedCandidate] };
+					} else {
+						if (this.index.getRevision() === revision)
+							return DuplicationResolver.DecideIgnoreStructure;
+					}
 				}
 			}
 		}
