@@ -5,6 +5,7 @@ import {
 	defineNumberProperty,
 	defineSourceType,
 	DuplicationGroup,
+	type Descriptor,
 	type Source,
 } from "../src/index.js";
 import { DuplicationIndex } from "../../src/tally/state/duplication/DuplicationIndex.js";
@@ -571,6 +572,103 @@ describe("duplication admission transactions", () => {
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
 
+	it("does not reconcile a Source destroyed before pending reconciliation is published", () => {
+		const Property = defineNumberProperty({
+			name: "DestroyedPendingReconciliationProperty",
+			defaultValue: 0,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		let reentered = false;
+		const SourceType = defineSourceType<number>({
+			name: "DestroyedPendingReconciliationSource",
+			priority: 100,
+			duplication: {
+				policy: "reconcile",
+				reconcile: (existing, incoming) => existing.set(incoming),
+			},
+			contribute: (value) => {
+				if (!reentered) {
+					reentered = true;
+					expect(agent.addSource(SourceType, 2)).toBeUndefined();
+				}
+				return [Property.add(value)];
+			},
+		});
+		agent.onPropertyChanged(Property, () => {
+			for (const source of agent.getSources(SourceType)) source.destroy();
+		});
+
+		expect(agent.addSource(SourceType, 1)).toBeUndefined();
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+	});
+
+	it("unregisters a Descriptor before its derived Source removal observers reenter", () => {
+		const OutputType = defineSourceType<number>({
+			name: "DerivedRemovalReplacementOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "DerivedRemovalReplacementDescriptor",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+		let replacement: Descriptor<number, number> | undefined;
+		const disconnect = agent.onSourceRemoved(() => {
+			disconnect();
+			replacement = agent.addDescriptor(DescriptorType, 2);
+		});
+
+		descriptor.destroy();
+
+		expect(replacement).toBeDefined();
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set([replacement]));
+	});
+
+	it("cleans up a Descriptor when its binding destroy callback throws", () => {
+		const OutputType = defineSourceType<number>({
+			name: "ThrowingDestroyDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ThrowingDestroyDescriptor",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState(undefined);
+		let shouldThrow = true;
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => {
+					if (shouldThrow) throw new Error("binding destroy failed");
+					source.destroy();
+				},
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+
+		expect(() => descriptor.destroy()).toThrow("binding destroy failed");
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+
+		shouldThrow = false;
+		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
+	});
+
 	it("tears down a Descriptor binding before removed observers attempt replacement", () => {
 		const OutputType = defineSourceType<number>({
 			name: "RemovedDescriptorReplacementOutput",
@@ -678,5 +776,16 @@ describe("duplication group validation", () => {
 					selector: "oldest",
 				})
 		).toThrow(/maxStack/);
+	});
+
+	it("rejects an unknown replacement selector", () => {
+		expect(
+			() =>
+				new DuplicationGroup({
+					policy: "replace",
+					maxStack: 1,
+					selector: "middle",
+				} as never)
+		).toThrow(/selector/);
 	});
 });
