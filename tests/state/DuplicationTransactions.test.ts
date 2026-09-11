@@ -143,6 +143,14 @@ describe("duplication admission transactions", () => {
 
 		const first = agent.addSource(SourceType, 1)!;
 		first.set(3);
+		agent.addSource(
+			defineSourceType<undefined>({
+				name: "DestroyedUpdatingSourceResolutionTrigger",
+				priority: 100,
+				contribute: () => [Property.add(0)],
+			}),
+			undefined
+		);
 
 		expect([...agent.getSources(SourceType)].map((source) => source.get())).toEqual([2]);
 		expect(agent.get(Property)).toBe(2);
@@ -348,6 +356,45 @@ describe("duplication admission transactions", () => {
 		expect(agent.addSource(SourceType, 2)).toBeDefined();
 	});
 
+	it("notifies Source removal when an added observer destroys the Source", () => {
+		const SourceType = defineSourceType<number>({
+			name: "AddedObserverRemovedSource",
+			priority: 100,
+			contribute: () => [],
+		});
+		const agent = new AgentState(undefined);
+		const events = new Array<string>();
+		agent.onSourceAdded((source) => {
+			events.push("added");
+			source.destroy();
+		});
+		agent.onSourceRemoved(() => events.push("removed"));
+
+		agent.addSource(SourceType, 1);
+
+		expect(events).toEqual(["added", "removed"]);
+	});
+
+	it("rolls back a Source when an added observer throws", () => {
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingAddedSource",
+			priority: 100,
+			duplication: { policy: "ignore" },
+			contribute: () => [],
+		});
+		const agent = new AgentState(undefined);
+		let shouldThrow = true;
+		agent.onSourceAdded(() => {
+			if (shouldThrow) throw new Error("added callback failed");
+		});
+
+		expect(() => agent.addSource(SourceType, 1)).toThrow("added callback failed");
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+
+		shouldThrow = false;
+		expect(agent.addSource(SourceType, 2)).toBeDefined();
+	});
+
 	it("does not retain a Descriptor destroyed during its added notification", () => {
 		const OutputType = defineSourceType<number>({
 			name: "AddedObserverDestroyedDescriptorOutput",
@@ -375,6 +422,70 @@ describe("duplication admission transactions", () => {
 
 		agent.addDescriptor(DescriptorType, 1);
 
+		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
+	});
+
+	it("notifies Descriptor removal when an added observer destroys the Descriptor", () => {
+		const OutputType = defineSourceType<number>({
+			name: "AddedObserverRemovedDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "AddedObserverRemovedDescriptor",
+			source: OutputType,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		const events = new Array<string>();
+		agent.onDescriptorAdded((descriptor) => {
+			events.push("added");
+			descriptor.destroy();
+		});
+		agent.onDescriptorRemoved(() => events.push("removed"));
+
+		agent.addDescriptor(DescriptorType, 1);
+
+		expect(events).toEqual(["added", "removed"]);
+	});
+
+	it("rolls back a Descriptor when an added observer throws", () => {
+		const OutputType = defineSourceType<number>({
+			name: "ThrowingAddedDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ThrowingAddedDescriptor",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		let shouldThrow = true;
+		agent.onDescriptorAdded(() => {
+			if (shouldThrow) throw new Error("added callback failed");
+		});
+
+		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("added callback failed");
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+
+		shouldThrow = false;
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
 });
