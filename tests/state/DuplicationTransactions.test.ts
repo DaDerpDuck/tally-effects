@@ -30,6 +30,35 @@ describe("duplication admission transactions", () => {
 		expect(agent.getSources(SourceType).size).toBe(1);
 	});
 
+	it("preserves a group's stack limit when ranking reenters admission", () => {
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 1,
+			selector: "lowest",
+		});
+		let reentered = false;
+		const agent = new AgentState<undefined>(undefined);
+		const SourceType = defineSourceType<number>({
+			name: "ReentrantGroupedRankingSource",
+			priority: 100,
+			duplication: group.member({
+				rank: (value) => {
+					if (value === 1 && !reentered) {
+						reentered = true;
+						agent.addSource(SourceType, 2);
+					}
+					return value;
+				},
+			}),
+			contribute: () => [],
+		});
+
+		agent.addSource(SourceType, 1);
+		agent.addSource(SourceType, 3);
+
+		expect(agent.getSources(SourceType).size).toBe(1);
+	});
+
 	it("lets the newer grouped admission replace a candidate still being published", () => {
 		const group = new DuplicationGroup({
 			policy: "replace",
@@ -54,6 +83,37 @@ describe("duplication admission transactions", () => {
 		agent.addSource(SourceType, 1);
 
 		expect([...agent.getSources(SourceType)].map((source) => source.get())).toEqual([2]);
+	});
+
+	it("rolls back modifiers from a Source cancelled during contribution", () => {
+		const Property = defineNumberProperty({
+			name: "CancelledPendingSourceProperty",
+			defaultValue: 0,
+		});
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 1,
+			selector: "oldest",
+		});
+		let reentered = false;
+		const agent = new AgentState<undefined>(undefined);
+		const SourceType = defineSourceType<number>({
+			name: "CancelledPendingSource",
+			priority: 100,
+			duplication: group.member(),
+			contribute: (value) => {
+				if (!reentered) {
+					reentered = true;
+					agent.addSource(SourceType, 2);
+				}
+				return [Property.add(value)];
+			},
+		});
+
+		agent.addSource(SourceType, 1);
+
+		expect([...agent.getSources(SourceType)].map((source) => source.get())).toEqual([2]);
+		expect(agent.get(Property)).toBe(2);
 	});
 
 	it("removes a failed Source reservation so admission can be retried", () => {
@@ -104,6 +164,66 @@ describe("duplication admission transactions", () => {
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
 
+	it("rolls back a Descriptor binding cancelled during handler execution", () => {
+		const OutputType = defineSourceType<number>({
+			name: "CancelledPendingDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 1,
+			selector: "oldest",
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "CancelledPendingDescriptor",
+			source: OutputType,
+			duplication: group.member(),
+		});
+		let reentered = false;
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			if (!reentered) {
+				reentered = true;
+				agent.addDescriptor(DescriptorType, 2);
+			}
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+
+		agent.addDescriptor(DescriptorType, 1);
+
+		expect(
+			[...agent.getDescriptors(DescriptorType)].map((descriptor) => descriptor.get())
+		).toEqual([2]);
+		expect([...agent.getSources(OutputType)].map((source) => source.get())).toEqual([2]);
+	});
+
+	it("rolls back a Descriptor's derived Source when its handler throws", () => {
+		const OutputType = defineSourceType<number>({
+			name: "FailedDescriptorHandlerOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "FailedDescriptorHandler",
+			source: OutputType,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			ctx.addSource(data);
+			throw new Error("handler failed");
+		});
+
+		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("handler failed");
+
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+	});
+
 	it("applies reconciliation that occurs while a Source is being published", () => {
 		const Property = defineNumberProperty({
 			name: "PendingReconciliationProperty",
@@ -131,6 +251,31 @@ describe("duplication admission transactions", () => {
 
 		expect(source.get()).toBe(2);
 		expect(agent.get(Property)).toBe(2);
+	});
+
+	it("unregisters a Source destroyed by pending reconciliation", () => {
+		let reentered = false;
+		const agent = new AgentState<undefined>(undefined);
+		const SourceType = defineSourceType<number>({
+			name: "PendingReconciliationDestroyedSource",
+			priority: 100,
+			duplication: {
+				policy: "reconcile",
+				reconcile: (existing) => existing.destroy(),
+			},
+			contribute: () => {
+				if (!reentered) {
+					reentered = true;
+					agent.addSource(SourceType, 2);
+				}
+				return [];
+			},
+		});
+
+		agent.addSource(SourceType, 1);
+
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.addSource(SourceType, 3)).toBeDefined();
 	});
 
 	it("unregisters a Source before removed observers attempt replacement", () => {
