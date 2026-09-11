@@ -57,11 +57,15 @@ export class DuplicationResolver {
 
 		if (policy.kind === "reconcile") {
 			if (conflicts.length > 0) {
-				const target = conflicts.values().next().value!.candidate as TInstance;
+				const entry = conflicts.values().next().value! as DuplicationEntry<TInstance>;
 				return {
 					action: "reconcile",
-					target: conflicts.values().next().value!.candidate as TInstance,
-					reconcile: () => policy.reconcile(target, data),
+					target: entry.candidate,
+					reconcile: () => {
+						if (entry.kind === "pending")
+							entry.afterCommit(() => policy.reconcile(entry.candidate, data));
+						else policy.reconcile(entry.candidate, data);
+					},
 				};
 			} else return DuplicationResolver.DecideAddStructure;
 		}
@@ -100,8 +104,7 @@ export class DuplicationResolver {
 				}
 
 				if (policy.replaceIf(rank, policy.rank(data))) {
-					// TODO: Trim bucket size if needed, but I think we can run on the assumption that
-					// buckets won't ever exceed max stack
+					// TODO: Trim bucket size if needed
 					return { action: "add", evict: [selectedCandidate] };
 				} else {
 					return DuplicationResolver.DecideIgnoreStructure;

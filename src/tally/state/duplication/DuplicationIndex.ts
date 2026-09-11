@@ -12,6 +12,7 @@ export type PlannedDuplicationEntry<TInstance extends DuplicationCandidate> = {
 	readonly score: () => number;
 	readonly evict: () => void;
 	readonly commit: () => LiveDuplicationEntry<TInstance> | undefined;
+	readonly afterCommit: (callback: (instance: TInstance) => void) => void;
 };
 
 export type LiveDuplicationEntry<TInstance extends DuplicationCandidate> = {
@@ -58,6 +59,9 @@ export class DuplicationIndex {
 	): PlannedDuplicationEntry<TInstance> {
 		const bucket = this.getOrCreateBucket(domain, key);
 
+		const afterCommitCallbacks = new Array<(instance: TInstance) => void>();
+
+		// TODO: Make stable entries (also this code is getting cursed)
 		const plannedEntry: PlannedDuplicationEntry<TInstance> = {
 			kind: "pending",
 			plannedCandidate: plannedInstance,
@@ -72,6 +76,7 @@ export class DuplicationIndex {
 				if (index < 0) return;
 				const liveCandidate = plannedEntry.plannedCandidate.commit();
 				if (!liveCandidate) return; // commit rejected for whatever reason
+				afterCommitCallbacks.forEach((callback) => callback(liveCandidate));
 				const liveEntry: LiveDuplicationEntry<TInstance> = {
 					kind: "live",
 					candidate: liveCandidate,
@@ -102,6 +107,9 @@ export class DuplicationIndex {
 				bucket.entries.pop();
 				bucket.shrink();
 				plannedEntry.plannedCandidate.cancel();
+			},
+			afterCommit(callback) {
+				afterCommitCallbacks.push(callback);
 			},
 		};
 
