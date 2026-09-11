@@ -1,8 +1,13 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { arch, cpus, platform } from "node:os";
+import { dirname, join } from "node:path";
 import {
 	Bench,
 	mToNs,
 	type BenchOptions,
+	type Fn,
 	type FnOptions,
 	type TimerSaturationReason,
 } from "tinybench";
@@ -54,6 +59,61 @@ let logLevel: BenchmarkLogLevel = "info";
 let profile: BenchmarkProfile = "default";
 const warningsByBench = new WeakMap<Bench, Map<string, Set<TimerSaturationReason>>>();
 const operationsPerSampleByBench = new WeakMap<Bench, Map<string, number>>();
+const workloadFingerprintsByBench = new WeakMap<Bench, Map<string, string>>();
+
+function digest(parts: readonly string[]): string {
+	const hash = createHash("sha256");
+	for (const part of parts) hash.update(part).update("\0");
+	return `sha256:${hash.digest("hex")}`;
+}
+
+function functionText(callback: unknown): string {
+	return typeof callback === "function" ? Function.prototype.toString.call(callback) : "";
+}
+
+function workloadFingerprint(
+	name: string,
+	operation: Fn,
+	options: FnOptions | undefined,
+	operationsPerSample: number
+): string {
+	return digest([
+		"tally-benchmark-workload-v1",
+		name,
+		String(operationsPerSample),
+		String(options?.async ?? "auto"),
+		String(options?.retainSamples ?? "default"),
+		functionText(operation),
+		functionText(options?.beforeAll),
+		functionText(options?.beforeEach),
+		functionText(options?.afterEach),
+		functionText(options?.afterAll),
+	]);
+}
+
+function tinybenchVersion(): string {
+	const require = createRequire(import.meta.url);
+	const entry = require.resolve("tinybench");
+	const manifest = JSON.parse(
+		readFileSync(join(dirname(entry), "..", "package.json"), "utf8")
+	) as {
+		version: string;
+	};
+	return manifest.version;
+}
+
+function harnessFingerprint(): string {
+	return digest([
+		"tally-benchmark-harness-v1",
+		JSON.stringify(QUICK_BENCH_OPTIONS),
+		JSON.stringify(COMPARISON_BENCH_OPTIONS),
+		JSON.stringify(HEAVY_BENCH_OPTIONS),
+		functionText(createBench),
+		functionText(addBatchedTask),
+		functionText(runBench),
+		tinybenchVersion(),
+	]);
+}
 
 export function setBenchmarkLogLevel(nextLevel: BenchmarkLogLevel) {
 	logLevel = nextLevel;
@@ -92,6 +152,14 @@ export function createBench(name: string, options?: BenchOptions): Bench {
 	const warnings = new Map<string, Set<TimerSaturationReason>>();
 	warningsByBench.set(bench, warnings);
 	operationsPerSampleByBench.set(bench, new Map());
+	const fingerprints = new Map<string, string>();
+	workloadFingerprintsByBench.set(bench, fingerprints);
+
+	const add = bench.add;
+	bench.add = function (taskName, task, taskOptions) {
+		fingerprints.set(taskName, workloadFingerprint(taskName, task, taskOptions, 1));
+		return add.call(this, taskName, task, taskOptions);
+	};
 
 	bench.addEventListener("warning", (event) => {
 		if (event.reason) {
@@ -130,6 +198,9 @@ export function addBatchedTask(
 		},
 		{ async: false, ...options }
 	);
+	workloadFingerprintsByBench
+		.get(bench)
+		?.set(name, workloadFingerprint(name, operation, options, operationsPerSample));
 
 	const batchSizes = operationsPerSampleByBench.get(bench) ?? new Map();
 	batchSizes.set(name, operationsPerSample);
@@ -144,6 +215,7 @@ export function runBench(bench: Bench): void {
 	bench.runSync();
 	const warnings = warningsByBench.get(bench);
 	const batchSizes = operationsPerSampleByBench.get(bench);
+	const fingerprints = workloadFingerprintsByBench.get(bench);
 
 	const tasks = bench.tasks.map((task): BenchmarkTaskReport => {
 		const result = task.result;
@@ -155,6 +227,11 @@ export function runBench(bench: Bench): void {
 
 		return {
 			name: task.name,
+			workloadFingerprint:
+				fingerprints?.get(task.name) ??
+				(() => {
+					throw new Error(`Benchmark "${task.name}" is missing a workload fingerprint`);
+				})(),
 			samples: result.latency.samplesCount,
 			latencyMedianNs: mToNs(result.latency.p50) / operationsPerSample,
 			latencyMeanNs: mToNs(result.latency.mean) / operationsPerSample,
@@ -191,6 +268,7 @@ export function runBench(bench: Bench): void {
 }
 
 export function createBenchmarkReport(commit: string, dirty: boolean): BenchmarkReport {
+	const dependencyVersions = { tinybench: tinybenchVersion() };
 	return {
 		schemaVersion: 2,
 		kind: "single",
@@ -207,6 +285,8 @@ export function createBenchmarkReport(commit: string, dirty: boolean): Benchmark
 			architecture: arch(),
 			cpu: cpus()[0]?.model ?? "unknown",
 		},
+		harnessFingerprint: harnessFingerprint(),
+		dependencies: dependencyVersions,
 
 		suites: reports,
 	};

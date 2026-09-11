@@ -74,7 +74,12 @@ not one agent or one effect. Use its total latency to estimate that workload's c
 Microbenchmarks isolate smaller paths. The original resolution suite updates the
 last modifier; a separate suite updates the middle to include ordered-array shifts.
 Duplication separates an empty reconcile callback from reconciliation that updates
-a real modifier. Replication covers both source and descriptor snapshot updates.
+a real modifier. It also covers keyed bucket hits and misses, temporal and ranked
+group selection, accepting and rejecting `replaceIf` predicates, conflicting
+descriptor admission, and `allow` bucket add/remove scaling at 100, 1,000, and
+10,000 occupants. Scaling tasks use the heavy sampling minimums and recreate or
+tear down the bounded population outside the opposite timed operation. Replication
+covers both source and descriptor snapshot updates.
 
 ## Output and comparison
 
@@ -97,12 +102,25 @@ including when running a different suite or profile on the same commit. Use expl
 paths to retain multiple measurements.
 
 Schema-2 JSON records the runtime/machine, normalized profile, effective suite timing
-settings, timer provider, batch sizes, warnings, and whether the checkout was dirty.
+settings, timer provider, batch sizes, warnings, the Tinybench version, and whether
+the checkout was dirty. Each task has a SHA-256 workload fingerprint derived from its
+registered operation, lifecycle hooks, async/retention settings, name, and operations
+per sample. The report also has a harness fingerprint derived from the benchmark
+helpers, timing profiles, and Tinybench version.
+
+The task fingerprint catches changes to registered callback bodies, but JavaScript
+function serialization cannot include values captured by a closure. Treat it as an
+additional comparability check, not proof that two externally configured fixtures are
+identical. Update benchmark names when a captured fixture changes the meaning of an
+operation.
+
 Avoid editing code during runs. Aggregation rejects mismatched revisions, settings,
-environments, or task lists. Comparisons accept single runs and legacy schema-1 reports,
-show added/removed tasks, and include diagnostics from **both** baseline and candidate.
-Known profile, environment, timing, or batch-size mismatches suppress percentage changes.
-Legacy files may lack the metadata needed to detect those mismatches.
+environments, fingerprints, dependencies, or task lists. Comparisons accept single runs,
+legacy schema-1 reports, and older schema-2 reports, show added/removed tasks, and include
+diagnostics from **both** baseline and candidate. Known profile, environment, harness,
+workload, dependency, timing, or batch-size mismatches suppress percentage changes. A
+missing fingerprint or dependency record is clearly marked but does not suppress an
+otherwise compatible legacy comparison.
 
 Repeated reports include these distinct measures, computed across the per-run medians:
 
@@ -172,7 +190,7 @@ checkout. `--output <directory>` accepts a new or empty directory. It contains:
 - `comparison.md`: the existing comparison, including noise diagnostics;
 - `runs/`: every individual report, identified by side and round;
 - `manifest.json`: revisions, compiler, selected suites, execution order, timestamps,
-  and completion/failure status.
+  dependency versions, and completion/failure status.
 
 A failed build/run stops the comparison and keeps completed raw reports for debugging.
 Existing output directories must be empty so stale success reports cannot be mistaken for
@@ -180,12 +198,13 @@ a new result. Keep source files unchanged throughout the run: compilation happen
 sampling, and the driver rejects revision changes. As with ordinary benchmarks, uncommitted
 changes are identified by a dirty flag, not by a content hash.
 
-Both sides record `tsc-emitted` execution plus the shared compiler version, including when
-the baseline's older reporter lacks that metadata. Sampling remains per task; the comparison
-uses the median of each task's per-process medians. It is **not** a paired significance test
-or bootstrap confidence interval. Raw round data is retained for future paired analysis.
-Use matching benchmark definitions when interpreting percentages; equal task labels alone
-do not prove that two revisions perform identical work.
+Both sides record `tsc-emitted` execution plus the shared compiler version. The driver also
+resolves and records each checkout's Tinybench version, including when the baseline's older
+reporter lacks that metadata. Sampling remains per task; the comparison uses the median of
+each task's per-process medians. It is **not** a paired significance test or bootstrap
+confidence interval. Raw round data is retained for future paired analysis. Use matching
+benchmark definitions when interpreting percentages; equal task labels alone do not prove
+that two revisions perform identical work.
 
 The manual GitHub workflow now uses this runner. Select a baseline ref, runs per revision
 (default seven), profile, and optional suite filter; the selected workflow revision is the

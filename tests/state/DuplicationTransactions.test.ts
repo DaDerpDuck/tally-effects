@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	AgentState,
 	defineDescriptorType,
@@ -392,6 +392,58 @@ describe("duplication admission transactions", () => {
 		expect(agent.getSources(SourceType)).toEqual(new Set([replacement]));
 	});
 
+	it("cancels a Source destroyed by a property observer during admission", () => {
+		const Property = defineNumberProperty({
+			name: "PropertyObserverDestroyedPendingSourceProperty",
+			defaultValue: 0,
+		});
+		const SourceType = defineSourceType<number>({
+			name: "PropertyObserverDestroyedPendingSource",
+			priority: 100,
+			duplication: { policy: "ignore" },
+			contribute: (value) => [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+		const added = vi.fn();
+		agent.onSourceAdded(added);
+		agent.onPropertyChanged(Property, (value) => {
+			if (value !== 1) return;
+			for (const source of agent.getSources(SourceType)) source.destroy();
+		});
+
+		const destroyedDuringAdmission = agent.addSource(SourceType, 1);
+
+		expect(destroyedDuringAdmission).toBeUndefined();
+		expect(added).not.toHaveBeenCalled();
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.addSource(SourceType, 2)).toBeDefined();
+	});
+
+	it("unregisters a Source before property observers attempt replacement", () => {
+		const Property = defineNumberProperty({
+			name: "PropertyObserverReplacementSourceProperty",
+			defaultValue: 0,
+		});
+		const SourceType = defineSourceType<number>({
+			name: "PropertyObserverReplacementSource",
+			priority: 100,
+			duplication: { policy: "ignore" },
+			contribute: (value) => [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+		const first = agent.addSource(SourceType, 1)!;
+		let replacement: Source<number> | undefined;
+		agent.onPropertyChanged(Property, (value) => {
+			if (value === 0) replacement = agent.addSource(SourceType, 2);
+		});
+
+		first.destroy();
+
+		expect(replacement).toBeDefined();
+		expect(agent.getSources(SourceType)).toEqual(new Set([replacement]));
+		expect(agent.get(Property)).toBe(2);
+	});
+
 	it("does not retain a Source destroyed during its added notification", () => {
 		const SourceType = defineSourceType<number>({
 			name: "AddedObserverDestroyedSource",
@@ -477,6 +529,78 @@ describe("duplication admission transactions", () => {
 		agent.addDescriptor(DescriptorType, 1);
 
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
+	});
+
+	it("cancels a Descriptor destroyed by a property observer during admission", () => {
+		const Property = defineNumberProperty({
+			name: "PropertyObserverDestroyedPendingDescriptorProperty",
+			defaultValue: 0,
+		});
+		const OutputType = defineSourceType<number>({
+			name: "PropertyObserverDestroyedPendingDescriptorOutput",
+			priority: 100,
+			contribute: (value) => [Property.add(value)],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "PropertyObserverDestroyedPendingDescriptor",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		const added = vi.fn();
+		agent.onDescriptorAdded(added);
+		agent.onPropertyChanged(Property, (value) => {
+			if (value !== 1) return;
+			for (const descriptor of agent.getDescriptors(DescriptorType)) descriptor.destroy();
+		});
+
+		const destroyedDuringAdmission = agent.addDescriptor(DescriptorType, 1);
+
+		expect(destroyedDuringAdmission).toBeUndefined();
+		expect(added).not.toHaveBeenCalled();
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
+	});
+
+	it("tears down a Descriptor binding before removed observers attempt replacement", () => {
+		const OutputType = defineSourceType<number>({
+			name: "RemovedDescriptorReplacementOutput",
+			priority: 100,
+			duplication: { policy: "ignore" },
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "RemovedDescriptorReplacement",
+			source: OutputType,
+		});
+		const agent = new AgentState(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+		let replacement: Source<number> | undefined;
+		agent.onDescriptorRemoved(() => {
+			replacement = agent.addSource(OutputType, 2);
+		});
+
+		descriptor.destroy();
+
+		expect(replacement).toBeDefined();
+		expect(agent.getSources(OutputType)).toEqual(new Set([replacement]));
 	});
 
 	it("notifies Descriptor removal when an added observer destroys the Descriptor", () => {

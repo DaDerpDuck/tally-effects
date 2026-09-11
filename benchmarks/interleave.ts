@@ -10,7 +10,7 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { parseLogLevel, parseProfile, selectSuites } from "./shared/cli.js";
 import { renderComparison } from "./shared/comparison.js";
@@ -83,6 +83,20 @@ const compiler = require.resolve("typescript/lib/tsc.js");
 const compilerVersion = (require("typescript/package.json") as { version: string }).version;
 const buildDirectories: string[] = [];
 
+async function packageVersion(root: string, packageName: string): Promise<string> {
+	const checkoutRequire = createRequire(join(root, "package.json"));
+	const entry = checkoutRequire.resolve(packageName);
+	const packageManifest = JSON.parse(
+		await readFile(join(dirname(entry), "..", "package.json"), "utf8")
+	) as { version: string };
+	return packageManifest.version;
+}
+
+const dependencies = {
+	baseline: { tinybench: await packageVersion(roots.baseline, "tinybench") },
+	candidate: { tinybench: await packageVersion(roots.candidate, "tinybench") },
+};
+
 async function build(root: string): Promise<string> {
 	// Both revisions use this driver's compiler, but their own source, harness, and
 	// root compiler settings. This also supports main before it has bench:build.
@@ -130,6 +144,7 @@ const manifest = {
 	checkouts: roots,
 	commits,
 	compiler: `typescript@${compilerVersion}`,
+	dependencies,
 	executions: [] as Array<{
 		round: number;
 		side: BenchmarkSide;
@@ -180,6 +195,9 @@ try {
 		// report it. No source-loader fallback is used for either side.
 		report.environment.execution = "tsc-emitted";
 		report.environment.compiler = `typescript@${compilerVersion}`;
+		// Older schema-2 reporters did not record dependency versions. The driver
+		// can still resolve the package used by each compiled checkout exactly.
+		report.dependencies ??= dependencies[side];
 		await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`);
 		manifest.executions.push({
 			round,
