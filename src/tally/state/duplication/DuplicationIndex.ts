@@ -8,9 +8,12 @@ import type {
 	PlannedDuplicationEntryHandle,
 } from "./DuplicationEntry.js";
 
-interface DuplicationBucket {
-	readonly entries: AnyDuplicationEntry[];
-	shrink(): void;
+class DuplicationBucket {
+	readonly entries: AnyDuplicationEntry[] = [];
+	constructor(
+		readonly domain: object,
+		readonly key: string | undefined
+	) {}
 }
 
 export class DuplicationIndex {
@@ -19,8 +22,8 @@ export class DuplicationIndex {
 	private order = 0;
 
 	private readonly duplicationStruct = {
-		unkeyed: new Map<object, AnyDuplicationEntry[]>(),
-		keyed: new Map<object, Map<string, AnyDuplicationEntry[]>>(),
+		unkeyed: new Map<object, DuplicationBucket>(),
+		keyed: new Map<object, Map<string, DuplicationBucket>>(),
 	} as const;
 
 	getRevision(): number {
@@ -30,11 +33,12 @@ export class DuplicationIndex {
 	get(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
 		if (key === undefined)
 			return (
-				this.duplicationStruct.unkeyed.get(domain)?.slice() ?? DuplicationIndex.EmptyArray
+				this.duplicationStruct.unkeyed.get(domain)?.entries.slice() ??
+				DuplicationIndex.EmptyArray
 			);
 		else
 			return (
-				this.duplicationStruct.keyed.get(domain)?.get(key)?.slice() ??
+				this.duplicationStruct.keyed.get(domain)?.get(key)?.entries.slice() ??
 				DuplicationIndex.EmptyArray
 			);
 	}
@@ -69,7 +73,17 @@ export class DuplicationIndex {
 				bucket.entries[this.slot]!.slot = this.slot;
 				bucket.entries.pop();
 				this.slot = -1;
-				bucket.shrink();
+				if (bucket.entries.length === 0) {
+					if (bucket.key === undefined) {
+						self.duplicationStruct.unkeyed.delete(bucket.domain);
+					} else {
+						const keyBucket = self.duplicationStruct.keyed.get(bucket.domain);
+						keyBucket?.delete(bucket.key);
+						if (keyBucket?.size === 0)
+							self.duplicationStruct.keyed.delete(bucket.domain);
+					}
+				}
+
 				self.revision++;
 				if (this.state.kind === "pending") this.state.planned.cancel();
 				else this.state.candidate.destroy();
@@ -133,27 +147,18 @@ export class DuplicationIndex {
 
 	private getOrCreateBucket(domain: object, key: string | undefined): DuplicationBucket {
 		if (key === undefined) {
-			const entries = getOrInsertComputed(this.duplicationStruct.unkeyed, domain, () => []);
-			return {
-				entries,
-				shrink: () => {
-					if (entries.length === 0) this.duplicationStruct.unkeyed.delete(domain);
-				},
-			};
+			return getOrInsertComputed(
+				this.duplicationStruct.unkeyed,
+				domain,
+				() => new DuplicationBucket(domain, key)
+			);
 		} else {
 			const keyBucket = getOrInsertComputed(
 				this.duplicationStruct.keyed,
 				domain,
-				() => new Map<string, DuplicationEntry[]>()
+				() => new Map<string, DuplicationBucket>()
 			);
-			const entries = getOrInsertComputed(keyBucket, key, () => []);
-			return {
-				entries,
-				shrink: () => {
-					if (entries.length === 0) keyBucket.delete(key);
-					if (keyBucket.size === 0) this.duplicationStruct.keyed.delete(domain);
-				},
-			};
+			return getOrInsertComputed(keyBucket, key, () => new DuplicationBucket(domain, key));
 		}
 	}
 }
