@@ -172,15 +172,15 @@ export class DescriptorManager<TEntity> {
 					this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor))
 				);
 
-				descriptor.onDestroy(() => {
-					this.descriptorMap.get(type)?.delete(descriptor);
-					this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor));
-				});
+				descriptor.onDestroy(() => this.descriptorMap.get(type)?.delete(descriptor));
 
 				return descriptor;
 			},
 			publish: (instance) => {
 				this.descriptorAddedCallbacks.forEach((callback) => callback(instance));
+				instance.onDestroy(() =>
+					this.descriptorRemovedCallbacks.forEach((callback) => callback(instance))
+				);
 			},
 			cancel: () => {
 				descriptorOptional?.destroy();

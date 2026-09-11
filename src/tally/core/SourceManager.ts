@@ -189,13 +189,15 @@ export class SourceManager {
 					this.sourceModifiersMap.delete(source);
 					this.sourceMap.get(source.type)?.delete(source);
 					this.requestResolve();
-					this.sourceRemovedCallbacks.forEach((callback) => callback(source));
 				});
 
 				return source;
 			},
 			publish: (instance) => {
 				this.sourceAddedCallbacks.forEach((callback) => callback(instance));
+				instance.onDestroy(() =>
+					this.sourceRemovedCallbacks.forEach((callback) => callback(instance))
+				);
 			},
 			cancel: () => {
 				sourceOptional?.destroy();
