@@ -44,22 +44,22 @@ export class DescriptorManager<TEntity> {
 		data: TDescriptorData,
 		options?: DescriptorOption
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
-		const result = this.sources.batch(() =>
-			this.duplicationResolver.resolve(
+		return this.sources.batch(() => {
+			const result = this.duplicationResolver.resolve(
 				() => this.prepareDescriptor(agent, type, data, options),
 				type,
 				data,
 				options?.key
-			)
-		);
+			);
 
-		if (result.result === "added") {
-			result.instance.onDestroy(() => result.unregister());
-			result.publish();
-			return result.instance;
-		} else {
-			return undefined;
-		}
+			if (result.result === "added") {
+				result.instance.onDestroy(() => result.unregister());
+				result.publish();
+				return result.instance;
+			} else {
+				return undefined;
+			}
+		});
 	}
 
 	registerDescriptorHandler<TDescriptorData, TSourceData>(

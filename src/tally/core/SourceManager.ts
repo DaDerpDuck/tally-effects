@@ -46,28 +46,22 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		let result: DuplicationResult<Source<TData>, TData>;
-		// inlined batch
-		this.mutationDepth++;
-		try {
-			result = this.duplicationResolver.resolve(
+		return this.batch(() => {
+			const result = this.duplicationResolver.resolve(
 				() => this.prepareSource(type, data, options),
 				type,
 				data,
 				options?.key
 			);
-		} finally {
-			this.mutationDepth--;
-			if (this.mutationDepth === 0) this.resolveProperties();
-		}
 
-		if (result.result === "added") {
-			result.instance.onDestroy(() => result.unregister());
-			result.publish();
-			return result.instance;
-		} else {
-			return undefined;
-		}
+			if (result.result === "added") {
+				result.instance.onDestroy(() => result.unregister());
+				result.publish();
+				return result.instance;
+			} else {
+				return undefined;
+			}
+		});
 	}
 
 	get<T>(property: Property<T>): T {
