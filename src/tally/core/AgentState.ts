@@ -9,6 +9,7 @@ import { DuplicationResolver } from "../state/duplication/DuplicationResolver.js
 import type { Source } from "../state/source/Source.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType } from "../state/source/SourceType.js";
+import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { IdCounter } from "../util/IdCounter.js";
 import { DescriptorManager, type DescriptorCallback } from "./DescriptorManager.js";
@@ -38,7 +39,7 @@ export class AgentState<TEntity> {
 		this.sources
 	);
 
-	private readonly destroyCallbacks = new Set<DestroyCallback>();
+	private readonly destroyCallbacks = new CallbackSet<[]>();
 
 	private destroyed = false;
 
@@ -200,8 +201,7 @@ export class AgentState<TEntity> {
 
 	onDestroy(callback: DestroyCallback): Disconnect {
 		if (this.destroyed) return () => {};
-		this.destroyCallbacks.add(callback);
-		return () => this.destroyCallbacks.delete(callback);
+		return this.destroyCallbacks.add(callback);
 	}
 
 	destroyAllSources() {
@@ -220,12 +220,13 @@ export class AgentState<TEntity> {
 	destroy() {
 		if (this.destroyed) return;
 		this.destroyed = true;
-		this.destroyCallbacks.forEach((callback) => callback());
+		const errors = this.destroyCallbacks.emit();
 		this.sources.disconnectAll();
 		this.descriptors.disconnectAll();
 		this.destroyAllSources();
 		this.destroyAllDescriptors();
 		this.destroyCallbacks.clear();
+		throwCallbackErrors(errors, "Errors occurred while destroying AgentState");
 	}
 
 	private assertAlive() {

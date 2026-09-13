@@ -12,6 +12,7 @@ import type { AnyDescriptorType, DescriptorType } from "../state/descriptor/Desc
 import type { StateProvenance } from "../state/Provenance.js";
 import type { Source } from "../state/source/Source.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
+import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
@@ -32,9 +33,15 @@ export class DescriptorManager<TEntity> {
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
 	private readonly descriptorMap = new Map<AnyDescriptorType, Set<AnyDescriptor>>();
 
-	private readonly descriptorAddedCallbacks = new Set<DescriptorCallback>();
-	private readonly descriptorRemovedCallbacks = new Set<DescriptorCallback>();
-	private readonly descriptorUpdatedCallbacks = new Set<DescriptorCallback>();
+	private readonly descriptorAddedCallbacks = new CallbackSet<
+		[descriptor: Descriptor<unknown, unknown>]
+	>();
+	private readonly descriptorRemovedCallbacks = new CallbackSet<
+		[descriptor: Descriptor<unknown, unknown>]
+	>();
+	private readonly descriptorUpdatedCallbacks = new CallbackSet<
+		[descriptor: Descriptor<unknown, unknown>]
+	>();
 
 	constructor(
 		private readonly counter: IdCounter,
@@ -86,18 +93,15 @@ export class DescriptorManager<TEntity> {
 	}
 
 	onDescriptorAdded(callback: DescriptorCallback): Disconnect {
-		this.descriptorAddedCallbacks.add(callback);
-		return () => this.descriptorAddedCallbacks.delete(callback);
+		return this.descriptorAddedCallbacks.add(callback);
 	}
 
 	onDescriptorRemoved(callback: DescriptorCallback): Disconnect {
-		this.descriptorRemovedCallbacks.add(callback);
-		return () => this.descriptorRemovedCallbacks.delete(callback);
+		return this.descriptorRemovedCallbacks.add(callback);
 	}
 
 	onDescriptorUpdated(callback: DescriptorCallback): Disconnect {
-		this.descriptorUpdatedCallbacks.add(callback);
-		return () => this.descriptorUpdatedCallbacks.delete(callback);
+		return this.descriptorUpdatedCallbacks.add(callback);
 	}
 
 	destroyAllDescriptors() {
@@ -161,11 +165,20 @@ export class DescriptorManager<TEntity> {
 				this.descriptorMap.get(type)?.delete(descriptor);
 			},
 			announceAdded: (descriptor) =>
-				this.descriptorAddedCallbacks.forEach((callback) => callback(descriptor)),
+				throwCallbackErrors(
+					this.descriptorAddedCallbacks.emit(descriptor),
+					"Errors occurred while announcing Descriptor addition"
+				),
 			announceUpdated: (descriptor) =>
-				this.descriptorUpdatedCallbacks.forEach((callback) => callback(descriptor)),
+				throwCallbackErrors(
+					this.descriptorUpdatedCallbacks.emit(descriptor),
+					"Errors occurred while announcing Descriptor update"
+				),
 			announceDestroyed: (descriptor) =>
-				this.descriptorRemovedCallbacks.forEach((callback) => callback(descriptor)),
+				throwCallbackErrors(
+					this.descriptorRemovedCallbacks.emit(descriptor),
+					"Errors occurred while announcing Descriptor destruction"
+				),
 		};
 	}
 

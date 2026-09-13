@@ -1,5 +1,5 @@
 import type { DescriptorId } from "../../replication/descriptor/ReplicatedDescriptor.js";
-import { CleanupStack } from "../../util/CleanupStack.js";
+import { CallbackSet, throwCallbackErrors } from "../../util/CallbackSet.js";
 import type { Disconnect } from "../../util/Disconnect.js";
 import type { AdmissionRuntime, RuntimeOwnership } from "../AdmissionRuntime.js";
 import type { AdmissionLease } from "../AdmissionTransaction.js";
@@ -41,11 +41,11 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	public readonly instance: DescriptorInstance<TDescriptorData, TSourceData>;
 	public readonly type: DescriptorType<TDescriptorData, TSourceData>;
 	private readonly derivedSources = new Array<Source>();
-	private readonly updateCallbacks = new Set<
-		(self: Descriptor<TDescriptorData, TSourceData>) => void
+	private readonly updateCallbacks = new CallbackSet<
+		[self: Descriptor<TDescriptorData, TSourceData>]
 	>();
-	private readonly destroyCallbacks = new Set<
-		(self: Descriptor<TDescriptorData, TSourceData>) => void
+	private readonly destroyCallbacks = new CallbackSet<
+		[self: Descriptor<TDescriptorData, TSourceData>]
 	>();
 	private ownership: RuntimeOwnership;
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
@@ -121,11 +121,17 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 		this.ownership = { kind: "destroyed" };
 		this.updateCallbacks.clear();
+		const errors: unknown[] = [];
 		if (this.announced) {
-			this.destroyCallbacks.forEach((callback) => callback(this.instance));
-			this.host.announceDestroyed(this.instance);
+			errors.push(...this.destroyCallbacks.emit(this.instance));
+			try {
+				this.host.announceDestroyed(this.instance);
+			} catch (error) {
+				errors.push(error);
+			}
 		}
 		this.destroyCallbacks.clear();
+		throwCallbackErrors(errors, "Errors occurred while rolling back Descriptor admission");
 	}
 
 	get(): TDescriptorData {
@@ -143,9 +149,14 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		this.data = data;
 		this.binding?.update(data);
 		if (this.isInactive()) return;
-		this.updateCallbacks.forEach((callback) => callback(this.instance));
-		if (this.isInactive()) return;
-		this.host.announceUpdated(this.instance);
+		const errors = this.updateCallbacks.emit(this.instance);
+		if (this.isInactive()) return throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
+		try {
+			this.host.announceUpdated(this.instance);
+		} catch (error) {
+			errors.push(error);
+		}
+		throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
 	}
 
 	destroy() {
@@ -164,26 +175,24 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		this.cleanupBinding();
 
 		this.updateCallbacks.clear();
-		// TODO: best effort callback
-		this.destroyCallbacks.forEach((callback) => callback(this.instance));
+		const errors = this.destroyCallbacks.emit(this.instance);
 		this.destroyCallbacks.clear();
-		this.host.announceDestroyed(this.instance);
+		try {
+			this.host.announceDestroyed(this.instance);
+		} catch (error) {
+			errors.push(error);
+		}
+		throwCallbackErrors(errors, "Errors occurred while destroying Descriptor");
 	}
 
 	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
 		if (this.ownership.kind === "destroyed") return () => {};
-		this.updateCallbacks.add(callback);
-		return () => {
-			this.updateCallbacks.delete(callback);
-		};
+		return this.updateCallbacks.add(callback);
 	}
 
 	onDestroy(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
 		if (this.ownership.kind === "destroyed") return () => {};
-		this.destroyCallbacks.add(callback);
-		return () => {
-			this.destroyCallbacks.delete(callback);
-		};
+		return this.destroyCallbacks.add(callback);
 	}
 
 	private assertAlive() {

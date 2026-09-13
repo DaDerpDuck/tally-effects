@@ -1,5 +1,6 @@
 import type { ModifierHandle } from "../../modifier/ModifierRegistry.js";
 import type { Disconnect } from "../../util/Disconnect.js";
+import { CallbackSet, throwCallbackErrors } from "../../util/CallbackSet.js";
 import type { AdmissionRuntime, RuntimeOwnership } from "../AdmissionRuntime.js";
 import type { AdmissionLease } from "../AdmissionTransaction.js";
 import type { StateProvenance } from "../Provenance.js";
@@ -46,8 +47,8 @@ interface SourceController<TData> {
 export class SourceRuntime<TData> implements SourceController<TData>, AdmissionRuntime<TData> {
 	public readonly instance: SourceInstance<TData>;
 	public readonly type: SourceType<TData>;
-	private readonly updateCallbacks = new Set<(self: Source<TData>) => void>();
-	private readonly destroyCallbacks = new Set<(self: Source<TData>) => void>();
+	private readonly updateCallbacks = new CallbackSet<[self: Source<TData>]>();
+	private readonly destroyCallbacks = new CallbackSet<[self: Source<TData>]>();
 	private ownership: RuntimeOwnership;
 	private data: TData;
 	private contributions: SourceContribution | undefined;
@@ -124,11 +125,17 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.contributions = undefined;
 		this.ownership = { kind: "destroyed" };
 		this.updateCallbacks.clear();
+		const errors: unknown[] = [];
 		if (this.announced) {
-			this.destroyCallbacks.forEach((callback) => callback(this.instance));
-			this.host.announceDestroyed(this.instance);
+			errors.push(...this.destroyCallbacks.emit(this.instance));
+			try {
+				this.host.announceDestroyed(this.instance);
+			} catch (error) {
+				errors.push(error);
+			}
 		}
 		this.destroyCallbacks.clear();
+		throwCallbackErrors(errors, "Errors occurred while rolling back Source admission");
 	}
 
 	get(): TData {
@@ -160,9 +167,14 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.handles = this.host.changeModifiers(this.instance, this.handles, this.contributions!);
 
 		if (this.isInactive()) return;
-		this.updateCallbacks.forEach((callback) => callback(this.instance));
-		if (this.isInactive()) return;
-		this.host.announceUpdated(this.instance);
+		const errors = this.updateCallbacks.emit(this.instance);
+		if (this.isInactive()) return throwCallbackErrors(errors, "Errors occurred while updating Source");
+		try {
+			this.host.announceUpdated(this.instance);
+		} catch (error) {
+			errors.push(error);
+		}
+		throwCallbackErrors(errors, "Errors occurred while updating Source");
 	}
 
 	destroy(): void {
@@ -180,26 +192,24 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.host.uninstallSource(this.instance, this.handles);
 
 		this.updateCallbacks.clear();
-		// TODO: best effort callback
-		this.destroyCallbacks.forEach((callback) => callback(this.instance));
+		const errors = this.destroyCallbacks.emit(this.instance);
 		this.destroyCallbacks.clear();
-		this.host.announceDestroyed(this.instance);
+		try {
+			this.host.announceDestroyed(this.instance);
+		} catch (error) {
+			errors.push(error);
+		}
+		throwCallbackErrors(errors, "Errors occurred while destroying Source");
 	}
 
 	onUpdate(callback: (self: Source<TData>) => void): Disconnect {
 		if (this.ownership.kind === "destroyed") return () => {};
-		this.updateCallbacks.add(callback);
-		return () => {
-			this.updateCallbacks.delete(callback);
-		};
+		return this.updateCallbacks.add(callback);
 	}
 
 	onDestroy(callback: (self: Source<TData>) => void): Disconnect {
 		if (this.ownership.kind === "destroyed") return () => {};
-		this.destroyCallbacks.add(callback);
-		return () => {
-			this.destroyCallbacks.delete(callback);
-		};
+		return this.destroyCallbacks.add(callback);
 	}
 
 	private assertAlive() {

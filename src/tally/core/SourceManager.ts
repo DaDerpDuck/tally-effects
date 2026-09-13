@@ -9,6 +9,7 @@ import type { SourceContribution } from "../state/source/SourceContribution.js";
 import { SourceRuntime, type SourceHost } from "../state/source/SourceInstance.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType, type AnySourceType } from "../state/source/SourceType.js";
+import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
@@ -23,10 +24,10 @@ export class SourceManager {
 	private readonly sources = new Set<Source>();
 	private readonly sourceMap = new Map<AnySourceType, Set<Source>>();
 
-	private readonly propertyCallbacks = new Map<AnyProperty, Set<PropertyCallback>>();
-	private readonly sourceAddedCallbacks = new Set<SourceCallback>();
-	private readonly sourceRemovedCallbacks = new Set<SourceCallback>();
-	private readonly sourceUpdatedCallbacks = new Set<SourceCallback>();
+	private readonly propertyCallbacks = new Map<AnyProperty, CallbackSet<[unknown, unknown]>>();
+	private readonly sourceAddedCallbacks = new CallbackSet<[source: Source]>();
+	private readonly sourceRemovedCallbacks = new CallbackSet<[source: Source]>();
+	private readonly sourceUpdatedCallbacks = new CallbackSet<[source: Source]>();
 
 	private readonly resolvedProperties = new Map<AnyProperty, unknown>();
 	private readonly dirtyProperties = new Set<AnyProperty>();
@@ -78,30 +79,24 @@ export class SourceManager {
 
 	onPropertyChanged<T>(property: Property<T>, callback: PropertyCallback<T>): Disconnect {
 		let callbacks = this.propertyCallbacks.get(property);
-		if (callbacks) {
-			callbacks.add(callback as PropertyCallback<unknown>);
-		} else {
-			callbacks = new Set();
+		if (!callbacks) {
+			callbacks = new CallbackSet<[unknown, unknown]>();
 			this.propertyCallbacks.set(property, callbacks);
-			callbacks.add(callback as PropertyCallback<unknown>);
 		}
 
-		return () => callbacks.delete(callback as PropertyCallback<unknown>);
+		return callbacks.add(callback as PropertyCallback<unknown>);
 	}
 
 	onSourceAdded(callback: SourceCallback): Disconnect {
-		this.sourceAddedCallbacks.add(callback);
-		return () => this.sourceAddedCallbacks.delete(callback);
+		return this.sourceAddedCallbacks.add(callback);
 	}
 
 	onSourceRemoved(callback: SourceCallback): Disconnect {
-		this.sourceRemovedCallbacks.add(callback);
-		return () => this.sourceRemovedCallbacks.delete(callback);
+		return this.sourceRemovedCallbacks.add(callback);
 	}
 
 	onSourceUpdated(callback: SourceCallback): Disconnect {
-		this.sourceUpdatedCallbacks.add(callback);
-		return () => this.sourceUpdatedCallbacks.delete(callback);
+		return this.sourceUpdatedCallbacks.add(callback);
 	}
 
 	disconnectAll() {
@@ -180,11 +175,20 @@ export class SourceManager {
 				this.requestResolve();
 			},
 			announceAdded: (source) =>
-				this.sourceAddedCallbacks.forEach((callback) => callback(source)),
+				throwCallbackErrors(
+					this.sourceAddedCallbacks.emit(source),
+					"Errors occurred while announcing Source addition"
+				),
 			announceUpdated: (source) =>
-				this.sourceUpdatedCallbacks.forEach((callback) => callback(source)),
+				throwCallbackErrors(
+					this.sourceUpdatedCallbacks.emit(source),
+					"Errors occurred while announcing Source update"
+				),
 			announceDestroyed: (source) =>
-				this.sourceRemovedCallbacks.forEach((callback) => callback(source)),
+				throwCallbackErrors(
+					this.sourceRemovedCallbacks.emit(source),
+					"Errors occurred while announcing Source destruction"
+				),
 		};
 	}
 
@@ -202,7 +206,11 @@ export class SourceManager {
 			this.resolvedProperties.set(property, newResolution);
 			if (!property.valueEquals(oldResolution, newResolution)) {
 				const callbacks = this.propertyCallbacks.get(property);
-				callbacks?.forEach((callback) => callback(newResolution, oldResolution));
+				if (callbacks)
+					throwCallbackErrors(
+						callbacks.emit(newResolution, oldResolution),
+						"Errors occurred while announcing property change"
+					);
 			}
 		}
 		this.dirtyProperties.clear();
