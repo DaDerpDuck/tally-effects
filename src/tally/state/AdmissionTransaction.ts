@@ -151,9 +151,9 @@ export class AdmissionTransaction<
 		const runtime = this.runtime;
 		if (!runtime || this.isTerminal()) return;
 
-		while (this.pendingReconciliations.length > 0 && !this.isTerminal()) {
-			this.pendingReconciliations.shift()!(runtime.instance as TCandidate);
-		}
+		for (let i = 0; i < this.pendingReconciliations.length && !this.isTerminal(); i++)
+			this.pendingReconciliations[i]!(runtime.instance as TCandidate);
+		this.pendingReconciliations.length = 0;
 	}
 
 	isTerminal() {

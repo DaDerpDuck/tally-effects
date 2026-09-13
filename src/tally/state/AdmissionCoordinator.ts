@@ -17,6 +17,8 @@ import type {
 } from "./duplication/DuplicationResolver.js";
 
 export class AdmissionCoordinator {
+	private static readonly ZeroScore = () => 0;
+
 	constructor(
 		private readonly index: DuplicationIndex,
 		private readonly resolver: DuplicationResolver
@@ -29,7 +31,9 @@ export class AdmissionCoordinator {
 	>(
 		plan: AdmissionPlan<TData, TCandidate, TRuntime>
 	): (() => TCandidate | undefined) | undefined {
-		// TODO: Preflight check to fast-path definitely-ignore situations
+		const preflightDecision = this.resolver.preflight(plan, this.domainOf(plan.type));
+		if (preflightDecision && preflightDecision.action === "ignore") return;
+
 		const transaction = new AdmissionTransaction(plan, this.index);
 
 		// eslint-disable-next-line prefer-const
@@ -51,20 +55,21 @@ export class AdmissionCoordinator {
 
 						throw new Error("Cannot rank a removed duplication entry");
 					}
-				: () => 0;
+				: AdmissionCoordinator.ZeroScore;
 
 		entry = this.index.reserve(this.domainOf(plan.type), plan.key, transaction, score);
 		transaction.markReserved(entry);
 
 		try {
 			transaction.beginDecision();
-			const initialDecision = this.resolver.decide(entry);
+			const initialDecision = preflightDecision ?? this.resolver.decide(entry);
 			if (transaction.isTerminal()) return;
 			if (initialDecision.action !== "add") {
 				this.finishNonAddDecision(transaction, initialDecision);
 				return;
 			}
 
+			const initialBasis = this.index.basis(entry.domain, entry.key);
 			transaction.beginPreparing();
 			const runtime = transaction.createRuntime();
 			if (!runtime) return;
@@ -77,8 +82,10 @@ export class AdmissionCoordinator {
 			transaction.drainReconciliations();
 			if (transaction.isTerminal()) return;
 
-			// TODO: Check decision is invalid and then run decide
-			const finalDecision = this.resolver.decide(entry);
+			const finalDecision =
+				initialDecision.evict.length === 0 && this.index.isCurrent(initialBasis)
+					? initialDecision
+					: this.resolver.decide(entry);
 			if (transaction.isTerminal()) return;
 			if (finalDecision.action !== "add") {
 				this.finishNonAddDecision(transaction, finalDecision);
@@ -125,7 +132,8 @@ export class AdmissionCoordinator {
 		transaction: AdmissionTransaction<TData, TCandidate, TRuntime>,
 		decision: DuplicationDecision<TData, TCandidate, TRuntime>
 	) {
-		if (decision.action === "add") throw new Error("No");
+		if (decision.action === "add")
+			throw new Error("An add decision cannot be completed as a non-add decision");
 		if (decision.action === "ignore") {
 			transaction.cancel();
 			return;

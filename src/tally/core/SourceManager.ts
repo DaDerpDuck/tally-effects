@@ -6,7 +6,7 @@ import type { AdmissionPlan } from "../state/AdmissionPlan.js";
 import type { StateProvenance } from "../state/Provenance.js";
 import type { Source } from "../state/source/Source.js";
 import type { SourceContribution } from "../state/source/SourceContribution.js";
-import { SourceRuntime, type SourceHost } from "../state/source/SourceInstance.js";
+import { SourceRuntime, type SourceHost } from "../state/source/SourceRuntime.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType, type AnySourceType } from "../state/source/SourceType.js";
 import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
@@ -31,7 +31,6 @@ export class SourceManager {
 
 	private readonly resolvedProperties = new Map<AnyProperty, unknown>();
 	private readonly dirtyProperties = new Set<AnyProperty>();
-
 	private mutationDepth = 0;
 
 	constructor(
@@ -141,7 +140,7 @@ export class SourceManager {
 		};
 	}
 
-	private createHost<TData>(type: SourceType<TData>): SourceHost<TData> {
+	private createHost<TData>(type: SourceType<TData>): SourceHost {
 		return {
 			contributeModifiers: (type, data) => this.contributeModifiers(type, data),
 			applyModifiers: (contributions, source) =>
@@ -156,7 +155,7 @@ export class SourceManager {
 
 				for (const handle of oldHandles) this.dirtyProperties.add(handle.property);
 				for (const handle of newHandles) this.dirtyProperties.add(handle.property);
-				
+
 				this.clearModifierHandles(oldHandles);
 
 				return newHandles;

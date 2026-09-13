@@ -6,7 +6,7 @@ import type {
 	AnyDescriptorHandler,
 	DescriptorHandler,
 } from "../state/descriptor/DescriptorHandler.js";
-import { DescriptorRuntime, type DescriptorHost } from "../state/descriptor/DescriptorInstance.js";
+import { DescriptorRuntime, type DescriptorHost } from "../state/descriptor/DescriptorRuntime.js";
 import type { DescriptorOption } from "../state/descriptor/DescriptorOption.js";
 import type { AnyDescriptorType, DescriptorType } from "../state/descriptor/DescriptorType.js";
 import type { StateProvenance } from "../state/Provenance.js";

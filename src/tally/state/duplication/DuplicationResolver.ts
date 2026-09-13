@@ -1,3 +1,4 @@
+import type { AdmissionPlan } from "../AdmissionPlan.js";
 import type { AdmissionRuntime } from "../AdmissionRuntime.js";
 import type { DuplicationCandidate } from "./DuplicationCandidate.js";
 import type { AnyDuplicationEntry, DuplicationEntry } from "./DuplicationEntry.js";
@@ -22,6 +23,51 @@ export class DuplicationResolver {
 
 	constructor(private readonly index: DuplicationIndex) {}
 
+	preflight<
+		TData,
+		TCandidate extends DuplicationCandidate<TData>,
+		TRuntime extends AdmissionRuntime<TData>,
+	>(
+		plan: AdmissionPlan<TData, TCandidate, TRuntime>,
+		domain: object
+	): DuplicationDecision<TData, TCandidate, TRuntime> | undefined {
+		const key = plan.key;
+		const type = plan.type;
+		const data = plan.data;
+		const policy = type.duplication;
+		if (policy.kind === "allow") return DuplicationResolver.DecideAddStructure;
+
+		const bucketSize = this.index.size(domain, key);
+
+		if (policy.kind === "ignore" && bucketSize > 0)
+			return DuplicationResolver.DecideIgnoreStructure;
+
+		if (policy.kind === "replace" && bucketSize === 0)
+			return DuplicationResolver.DecideAddStructure;
+
+		if (policy.kind === "reconcile") {
+			const reconcileTarget = this.index.first(domain, key) as
+				DuplicationEntry<TData, TCandidate, TRuntime> | undefined;
+			if (reconcileTarget) {
+				return {
+					action: "reconcile",
+					target: reconcileTarget,
+					reconcile: (target) => policy.reconcile(target, data),
+				};
+			} else return DuplicationResolver.DecideAddStructure;
+		}
+
+		if (policy.kind === "group") {
+			if (policy.group.policy === "ignore" && bucketSize >= policy.group.maxStack)
+				return DuplicationResolver.DecideIgnoreStructure;
+
+			if (policy.group.policy === "replace") {
+				if (policy.group.maxStack <= 0) return DuplicationResolver.DecideIgnoreStructure;
+				if (bucketSize === 0) return DuplicationResolver.DecideAddStructure;
+			}
+		}
+	}
+
 	decide<
 		TData,
 		TCandidate extends DuplicationCandidate<TData>,
@@ -44,16 +90,14 @@ export class DuplicationResolver {
 		const policy = type.duplication;
 		if (policy.kind === "allow") return DuplicationResolver.DecideAddStructure;
 
-		const snapshot = this.index.snapshot(entry.domain, entry.key);
-
 		if (policy.kind === "ignore") {
-			return this.hasOther(snapshot.entries, entry)
+			return this.hasOther(this.index.view(domain, key), entry)
 				? DuplicationResolver.DecideIgnoreStructure
 				: DuplicationResolver.DecideAddStructure;
 		}
 
 		if (policy.kind === "replace") {
-			const evictions = snapshot.entries.filter((x) => x !== entry);
+			const evictions = this.index.view(domain, key).filter((x) => x !== entry);
 			return evictions.length > 0
 				? {
 						action: "add",
@@ -63,11 +107,9 @@ export class DuplicationResolver {
 		}
 
 		if (policy.kind === "reconcile") {
-			if (this.hasOther(snapshot.entries, entry)) {
-				const reconcileTarget = this.firstOther(
-					snapshot.entries,
-					entry
-				)! as DuplicationEntry<TData, TCandidate, TRuntime>;
+			const reconcileTarget = this.firstOther(this.index.view(domain, key), entry) as
+				DuplicationEntry<TData, TCandidate, TRuntime> | undefined;
+			if (reconcileTarget) {
 				return {
 					action: "reconcile",
 					target: reconcileTarget,
@@ -79,7 +121,7 @@ export class DuplicationResolver {
 		if (policy.kind === "group") {
 			if (policy.group.policy === "ignore") {
 				let conflictCount = 0;
-				for (const conflict of snapshot.entries) {
+				for (const conflict of this.index.view(domain, key)) {
 					if (conflict !== entry) conflictCount++;
 				}
 
@@ -130,10 +172,9 @@ export class DuplicationResolver {
 					}
 
 					if (policy.replaceIf(rank, policy.rank(data))) {
-						if (this.index.isCurrent(snapshot))
-							// TODO: Select the full eviction set when this bucket already exceeds maxStack.
+						if (this.index.isCurrent(snapshot.basis))
 							return { action: "add", evict: [selectedCandidate] };
-					} else if (this.index.isCurrent(snapshot)) {
+					} else if (this.index.isCurrent(snapshot.basis)) {
 						return DuplicationResolver.DecideIgnoreStructure;
 					}
 				}

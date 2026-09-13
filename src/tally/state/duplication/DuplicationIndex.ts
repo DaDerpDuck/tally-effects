@@ -14,12 +14,16 @@ class DuplicationBucket {
 	) {}
 }
 
-export interface DuplicationSnapshot {
-	readonly entries: readonly AnyDuplicationEntry[];
-	readonly bucketToken: object;
+export interface DuplicationBasis {
+	readonly token: object;
 	readonly revision: number;
 	readonly domain: object;
 	readonly key: string | undefined;
+}
+
+export interface DuplicationSnapshot {
+	readonly entries: readonly AnyDuplicationEntry[];
+	readonly basis: DuplicationBasis;
 }
 
 export class DuplicationIndex {
@@ -81,6 +85,7 @@ export class DuplicationIndex {
 		entry.slot = -1;
 		entry.state = { kind: "removed" };
 		bucket.revision++;
+		if (bucket.entries.length === 0) this.deleteBucket(bucket);
 	}
 
 	size(domain: object, key: string | undefined) {
@@ -93,20 +98,28 @@ export class DuplicationIndex {
 
 	snapshot(domain: object, key: string | undefined): DuplicationSnapshot {
 		const bucket = this.getBucket(domain, key);
-		if (!bucket) return { entries: [], bucketToken: {}, revision: -1, domain, key };
+		if (!bucket) return { entries: [], basis: this.basis(domain, key) };
 		return {
 			entries: [...bucket.entries],
-			bucketToken: bucket,
+			basis: this.basis(domain, key),
+		};
+	}
+
+	basis(domain: object, key: string | undefined): DuplicationBasis {
+		const bucket = this.getBucket(domain, key);
+		if (!bucket) return { token: {}, revision: -1, domain, key };
+		return {
+			token: bucket,
 			revision: bucket.revision,
 			domain,
 			key,
 		};
 	}
 
-	isCurrent(snapshot: DuplicationSnapshot): boolean {
-		const bucket = this.getBucket(snapshot.domain, snapshot.key);
+	isCurrent(basis: DuplicationBasis): boolean {
+		const bucket = this.getBucket(basis.domain, basis.key);
 		if (!bucket) return false;
-		return snapshot.bucketToken === bucket && snapshot.revision === bucket.revision;
+		return basis.token === bucket && basis.revision === bucket.revision;
 	}
 
 	view(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
@@ -133,5 +146,17 @@ export class DuplicationIndex {
 	private getBucket(domain: object, key: string | undefined): DuplicationBucket | undefined {
 		if (key === undefined) return this.duplicationStruct.unkeyed.get(domain);
 		else return this.duplicationStruct.keyed.get(domain)?.get(key);
+	}
+
+	private deleteBucket(bucket: DuplicationBucket) {
+		if (bucket.key === undefined) {
+			this.duplicationStruct.unkeyed.delete(bucket.domain);
+			return;
+		}
+
+		const keyedDomain = this.duplicationStruct.keyed.get(bucket.domain);
+		if (!keyedDomain) return;
+		keyedDomain.delete(bucket.key);
+		if (keyedDomain.size === 0) this.duplicationStruct.keyed.delete(bucket.domain);
 	}
 }

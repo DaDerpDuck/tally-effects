@@ -60,6 +60,31 @@ describe("duplication admission transactions", () => {
 		expect(agent.getSources(SourceType).size).toBe(1);
 	});
 
+	it("revalidates a grouped eviction when preparation mutates the incoming rank", () => {
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 1,
+			selector: "highest",
+		});
+		const SourceType = defineSourceType<{ rank: number }>({
+			name: "PreparationMutatedGroupedRank",
+			priority: 100,
+			duplication: group.member({
+				rank: (data) => data.rank,
+				replaceIf: (existingRank, incomingRank) => incomingRank > existingRank,
+			}),
+			contribute: (data) => {
+				if (data.rank === 10) data.rank = 0;
+				return [];
+			},
+		});
+		const agent = new AgentState(undefined);
+		const existing = agent.addSource(SourceType, { rank: 5 })!;
+
+		expect(agent.addSource(SourceType, { rank: 10 })).toBeUndefined();
+		expect(agent.getSources(SourceType)).toEqual(new Set([existing]));
+	});
+
 	it("lets the newer grouped admission replace a candidate still being published", () => {
 		const group = new DuplicationGroup({
 			policy: "replace",
