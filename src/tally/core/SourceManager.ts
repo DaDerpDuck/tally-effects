@@ -148,22 +148,25 @@ export class SourceManager {
 				this.applyModifiers(contributions, source.priority, source.provenance),
 			discardModifiers: (handles) => this.clearModifierHandles(handles),
 			changeModifiers: (source, oldHandles, newContributions) => {
-				for (const handle of oldHandles) this.dirtyProperties.add(handle.property);
-				this.clearModifierHandles(oldHandles);
-
 				const newHandles = this.applyModifiers(
 					newContributions,
 					source.priority,
 					source.provenance
 				);
+
+				for (const handle of oldHandles) this.dirtyProperties.add(handle.property);
 				for (const handle of newHandles) this.dirtyProperties.add(handle.property);
-				this.requestResolve();
+				
+				this.clearModifierHandles(oldHandles);
+
 				return newHandles;
+			},
+			resolveModifiers: () => {
+				this.requestResolve();
 			},
 			installSource: (source, handles) => {
 				this.sources.add(source);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
-				this.requestResolve();
 
 				getOrInsertComputed(this.sourceMap, type, () => new Set()).add(source);
 			},
@@ -172,7 +175,6 @@ export class SourceManager {
 				this.clearModifierHandles(handles);
 				this.sources.delete(source);
 				this.sourceMap.get(source.type)?.delete(source);
-				this.requestResolve();
 			},
 			announceAdded: (source) =>
 				throwCallbackErrors(

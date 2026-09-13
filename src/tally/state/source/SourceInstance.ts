@@ -20,6 +20,7 @@ export interface SourceHost<TData> {
 		oldHandles: ModifierHandle[],
 		newContributions: SourceContribution
 	): ModifierHandle[];
+	resolveModifiers(): void;
 	installSource(source: SourceInstance<TData>, handles: ModifierHandle[]): void;
 	uninstallSource(source: SourceInstance<TData>, handles: ModifierHandle[]): void;
 	announceAdded(source: SourceInstance<TData>): void;
@@ -94,6 +95,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		if (this.contributions === undefined) return;
 		this.handles = this.host.applyModifiers(this.contributions, this.instance);
 		this.host.installSource(this.instance, this.handles);
+		this.host.resolveModifiers();
 		this.installed = true;
 	}
 
@@ -165,10 +167,21 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 		this.handles = this.host.changeModifiers(this.instance, this.handles, this.contributions!);
 
-		if (this.isInactive()) return;
-		const errors = this.updateCallbacks.emit(this.instance);
+		const errors: unknown[] = [];
+		try {
+			this.host.resolveModifiers();
+		} catch (e) {
+			errors.push(e);
+		}
+
 		if (this.isInactive())
 			return throwCallbackErrors(errors, "Errors occurred while updating Source");
+
+		errors.push(...this.updateCallbacks.emit(this.instance));
+
+		if (this.isInactive())
+			return throwCallbackErrors(errors, "Errors occurred while updating Source");
+		
 		try {
 			this.host.announceUpdated(this.instance);
 		} catch (error) {
@@ -190,6 +203,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 		unlink();
 		this.host.uninstallSource(this.instance, this.handles);
+		this.host.resolveModifiers();
 
 		this.updateCallbacks.clear();
 		const errors = this.destroyCallbacks.emit(this.instance);
