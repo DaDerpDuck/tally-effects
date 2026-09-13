@@ -143,7 +143,6 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 	}
 
 	set(data: TData): void {
-		// TODO: If installed is false, set() must only update staged data/contributions, it must not call changeModifiers
 		this.assertAlive();
 		if (this.type.dataEquals(this.data, data)) return;
 
@@ -168,7 +167,8 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 		if (this.isInactive()) return;
 		const errors = this.updateCallbacks.emit(this.instance);
-		if (this.isInactive()) return throwCallbackErrors(errors, "Errors occurred while updating Source");
+		if (this.isInactive())
+			return throwCallbackErrors(errors, "Errors occurred while updating Source");
 		try {
 			this.host.announceUpdated(this.instance);
 		} catch (error) {

@@ -80,7 +80,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 		// The handler may have called descriptor.destroy().
 		if (lease.isTerminal()) {
-			binding?.destroy();
+			this.cleanupBinding();
 			return;
 		}
 
@@ -150,7 +150,8 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		this.binding?.update(data);
 		if (this.isInactive()) return;
 		const errors = this.updateCallbacks.emit(this.instance);
-		if (this.isInactive()) return throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
+		if (this.isInactive())
+			return throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
 		try {
 			this.host.announceUpdated(this.instance);
 		} catch (error) {
@@ -207,9 +208,12 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	}
 
 	private cleanupBinding() {
-		this.binding?.destroy();
-		this.derivedSources.forEach((source) => source.destroy());
-		this.derivedSources.length = 0;
+		try {
+			this.binding?.destroy();
+		} finally {
+			this.derivedSources.forEach((source) => source.destroy());
+			this.derivedSources.length = 0;
+		}
 	}
 }
 

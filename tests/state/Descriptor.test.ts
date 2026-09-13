@@ -198,6 +198,47 @@ describe("descriptor lifecycle", () => {
 		expect(agent.getDescriptors(ValueDescriptor).size).toBe(0);
 	});
 
+	it("keeps its bound source readable after destruction", () => {
+		const { agent } = createAgentFixture();
+		const descriptor = agent.addDescriptor(ValueDescriptor, { value: 5 })!;
+		const source = descriptor.getSource();
+
+		descriptor.destroy();
+
+		expect(descriptor.getSource()).toBe(source);
+	});
+
+	it("destroys derived sources added reentrantly while its binding is torn down", () => {
+		const Output = defineSourceType<number>({
+			name: "ReentrantBindingDestroyOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const ReentrantDescriptor = defineDescriptorType<number, number>({
+			name: "ReentrantBindingDestroyDescriptor",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(ReentrantDescriptor, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => {
+					expect(descriptor.getSource()).toBe(source);
+					ctx.addSource(data + 1);
+					source.destroy();
+				},
+			};
+		});
+
+		const descriptor = agent.addDescriptor(ReentrantDescriptor, 1)!;
+		descriptor.destroy();
+
+		expect(agent.getDescriptors(ReentrantDescriptor)).toEqual(new Set());
+		expect(agent.getSources(Output)).toEqual(new Set());
+	});
+
 	it("throws when mutating a destroyed descriptor", () => {
 		const { agent } = createAgentFixture();
 		const descriptor = agent.addDescriptor(ValueDescriptor, { value: 5 })!;

@@ -310,6 +310,35 @@ describe("agent state", () => {
 		expect(callback).toHaveBeenCalledWith(0, 5);
 	});
 
+	it("keeps source modifiers owned when a property observer throws during an update", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingObserverProperty",
+			defaultValue: 0,
+		});
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingObserverSource",
+			priority: 100,
+			contribute: (value) => [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+		const source = agent.addSource(SourceType, 1)!;
+		const disconnect = agent.onPropertyChanged(Property, (value) => {
+			if (value === 2) throw new Error("property observer failed");
+		});
+
+		expect(() => source.set(2)).toThrow("property observer failed");
+		expect(source.get()).toBe(2);
+		expect(agent.get(Property)).toBe(2);
+
+		disconnect();
+		source.set(3);
+		expect(agent.get(Property)).toBe(3);
+
+		source.destroy();
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+	});
+
 	it("disconnects source observation", () => {
 		const agent = new AgentState(undefined);
 		const callback = vi.fn();

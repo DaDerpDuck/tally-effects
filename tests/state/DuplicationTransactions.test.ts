@@ -265,12 +265,13 @@ describe("duplication admission transactions", () => {
 		expect(agent.getSources(OutputType)).toEqual(new Set());
 	});
 
-	it("applies reconciliation that occurs while a Source is being published", () => {
+	it("reprepares a Source after pending reconciliation changes its data during contribution", () => {
 		const Property = defineNumberProperty({
 			name: "PendingReconciliationProperty",
 			defaultValue: 0,
 		});
 		let reentered = false;
+		const evaluated = new Array<number>();
 		const agent = new AgentState<undefined>(undefined);
 		const SourceType = defineSourceType<number>({
 			name: "PendingReconciliationSource",
@@ -280,6 +281,7 @@ describe("duplication admission transactions", () => {
 				reconcile: (existing, incoming) => existing.set(incoming),
 			},
 			contribute: (value) => {
+				evaluated.push(value);
 				if (!reentered) {
 					reentered = true;
 					agent.addSource(SourceType, 2);
@@ -292,6 +294,35 @@ describe("duplication admission transactions", () => {
 
 		expect(source.get()).toBe(2);
 		expect(agent.get(Property)).toBe(2);
+		expect(evaluated).toEqual([1, 2]);
+	});
+
+	it("discards stale contributions after a reentrant live Source update", () => {
+		const Property = defineNumberProperty({
+			name: "ReentrantLiveSourceUpdateProperty",
+			defaultValue: 0,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		// eslint-disable-next-line prefer-const
+		let source: Source<number> | undefined;
+		let reentered = false;
+		const SourceType = defineSourceType<number>({
+			name: "ReentrantLiveSourceUpdate",
+			priority: 100,
+			contribute: (value) => {
+				if (value === 2 && !reentered) {
+					reentered = true;
+					source!.set(3);
+				}
+				return [Property.add(value)];
+			},
+		});
+
+		source = agent.addSource(SourceType, 1)!;
+		source.set(2);
+
+		expect(source.get()).toBe(3);
+		expect(agent.get(Property)).toBe(3);
 	});
 
 	it("unregisters a Source destroyed by pending reconciliation", () => {
@@ -359,6 +390,36 @@ describe("duplication admission transactions", () => {
 
 		expect(replacement).toBeDefined();
 		expect(agent.getSources(SourceType)).toEqual(new Set([replacement]));
+	});
+
+	it("finishes Source teardown when destroy callbacks throw", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingSourceDestroyCallbackProperty",
+			defaultValue: 0,
+		});
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingSourceDestroyCallback",
+			priority: 100,
+			duplication: { policy: "ignore" },
+			contribute: (value) => [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+		const source = agent.addSource(SourceType, 1)!;
+		const laterDestroyCallback = vi.fn();
+		const removed = vi.fn();
+		source.onDestroy(() => {
+			throw new Error("source destroy callback failed");
+		});
+		source.onDestroy(laterDestroyCallback);
+		agent.onSourceRemoved(removed);
+
+		expect(() => source.destroy()).toThrow("source destroy callback failed");
+
+		expect(laterDestroyCallback).toHaveBeenCalledWith(source);
+		expect(removed).toHaveBeenCalledWith(source);
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+		expect(agent.addSource(SourceType, 2)).toBeDefined();
 	});
 
 	it("cancels a Source destroyed by a property observer during admission", () => {
@@ -667,6 +728,49 @@ describe("duplication admission transactions", () => {
 
 		expect(replacement).toBeDefined();
 		expect(agent.getSources(OutputType)).toEqual(new Set([replacement]));
+	});
+
+	it("finishes Descriptor teardown when destroy callbacks throw", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingDescriptorDestroyCallbackProperty",
+			defaultValue: 0,
+		});
+		const OutputType = defineSourceType<number>({
+			name: "ThrowingDescriptorDestroyCallbackOutput",
+			priority: 100,
+			contribute: (value) => [Property.add(value)],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ThrowingDescriptorDestroyCallback",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+		const laterDestroyCallback = vi.fn();
+		const removed = vi.fn();
+		descriptor.onDestroy(() => {
+			throw new Error("descriptor destroy callback failed");
+		});
+		descriptor.onDestroy(laterDestroyCallback);
+		agent.onDescriptorRemoved(removed);
+
+		expect(() => descriptor.destroy()).toThrow("descriptor destroy callback failed");
+
+		expect(laterDestroyCallback).toHaveBeenCalledWith(descriptor);
+		expect(removed).toHaveBeenCalledWith(descriptor);
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
 
 	it("notifies Descriptor removal when an added observer destroys the Descriptor", () => {
