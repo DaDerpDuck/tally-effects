@@ -1122,8 +1122,7 @@ describe("duplication group validation", () => {
 	});
 
 	it.each([
-		{ policy: "ignore", maxStack: 1, selector: "oldest" },
-		{ policy: "replace", selector: "oldest" },
+		{ policy: "invalid", maxStack: 1, selector: "oldest" },
 		{ policy: "replace", maxStack: 1, selector: "invalid" },
 	])("rejects an invalid runtime group definition %#", (definition) => {
 		expect(() => new DuplicationGroup(definition as never)).toThrow();

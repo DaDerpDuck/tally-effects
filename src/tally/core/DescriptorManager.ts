@@ -85,7 +85,7 @@ export class DescriptorManager<TEntity> {
 			if (errors.length === 1) throw errors[0];
 			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
 		}
-		return receipt?.publish();
+		return this.sources.batch(() => receipt?.publish());
 	}
 
 	registerDescriptorHandler<TDescriptorData, TSourceData>(

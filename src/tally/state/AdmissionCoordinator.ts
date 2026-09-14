@@ -1,3 +1,4 @@
+import { throwCallbackErrors } from "../util/CallbackSet.js";
 import type { AdmissionPlan } from "./AdmissionPlan.js";
 import type { AdmissionRuntime } from "./AdmissionRuntime.js";
 import { AdmissionTransaction } from "./AdmissionTransaction.js";
@@ -57,7 +58,7 @@ export class AdmissionCoordinator {
 
 		const policy = plan.type.duplication;
 		const score =
-			policy.kind === "group"
+			policy.policy === "group"
 				? () => {
 						const state = entry.state;
 
@@ -200,13 +201,19 @@ export class AdmissionCoordinator {
 			DuplicationEntryState<unknown, DuplicationCandidate<unknown>, AdmissionRuntime<unknown>>
 		>
 	) {
+		const errors: unknown[] = [];
 		for (const state of oldStates) {
-			if (state.kind === "live") state.candidate.destroy();
-			else if (state.kind === "pending") state.admission.cancel();
+			try {
+				if (state.kind === "live") state.candidate.destroy();
+				else if (state.kind === "pending") state.admission.cancel();
+			} catch (e) {
+				errors.push(e);
+			}
 		}
+		throwCallbackErrors(errors, "Error while destroying evictions");
 	}
 
 	private domainOf(type: AnyDuplicableType): object {
-		return type.duplication.kind === "group" ? type.duplication.group : type;
+		return type.duplication.policy === "group" ? type.duplication.group : type;
 	}
 }

@@ -24,12 +24,12 @@ export type DuplicatePolicy<TExisting, TData> =
 	| DuplicationGroupMember<TData>;
 
 export type ResolvedDuplicatePolicy<TExisting, TData> =
-	| { readonly kind: "allow" }
-	| { readonly kind: "ignore" }
-	| { readonly kind: "replace" }
-	| { readonly kind: "reconcile"; reconcile(existing: TExisting, incoming: TData): void }
+	| { readonly policy: "allow" }
+	| { readonly policy: "ignore" }
+	| { readonly policy: "replace" }
+	| { readonly policy: "reconcile"; reconcile(existing: TExisting, incoming: TData): void }
 	| {
-			readonly kind: "group";
+			readonly policy: "group";
 			readonly group: DuplicationGroup;
 			rank(data: TData): number;
 			replaceIf(existingRank: number, incomingRank: number): boolean;
@@ -41,17 +41,17 @@ export function resolveDuplicatePolicy<TExisting, TData>(
 	if ("policy" in policy) {
 		if (policy.policy === "reconcile") {
 			return {
-				kind: "reconcile",
+				policy: "reconcile",
 				reconcile: policy.reconcile,
 			};
 		} else {
 			return {
-				kind: policy.policy,
+				policy: policy.policy,
 			};
 		}
 	} else {
 		return {
-			kind: "group",
+			policy: "group",
 			group: policy.group,
 			rank: policy.rank,
 			replaceIf: policy.replaceIf,

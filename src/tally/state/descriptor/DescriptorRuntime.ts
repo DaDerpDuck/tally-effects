@@ -42,6 +42,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	private data: TDescriptorData;
 	private dataRevision = 0;
+	private updating = false;
 	private installed = false;
 	private announced = false;
 
@@ -109,11 +110,17 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	rollbackAdmission(): void {
 		if (this.ownership.kind !== "admitting") return;
 		if (this.installed) this.host.uninstallDescriptor(this.instance);
-		this.cleanupBinding();
+
+		const errors: unknown[] = [];
+		try {
+			this.cleanupBinding();
+		} catch (e) {
+			errors.push(e);
+		}
 
 		this.ownership = { kind: "destroyed" };
 		this.updateCallbacks.clear();
-		const errors: unknown[] = [];
+
 		if (this.announced) {
 			errors.push(...this.destroyCallbacks.emit(this.instance));
 			try {
@@ -141,25 +148,31 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 		this.data = data;
 		this.dataRevision++;
+		if (this.updating) return;
 
-		while (!this.isInactive()) {
-			const revision = this.dataRevision;
-			this.binding?.update(this.data);
-			if (this.isInactive()) return;
-			if (this.dataRevision !== revision) continue;
-			break;
-		}
-
-		if (this.isInactive()) return;
-		const errors = this.updateCallbacks.emit(this.instance);
-		if (this.isInactive())
-			return throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
 		try {
-			this.host.announceUpdated(this.instance);
-		} catch (error) {
-			errors.push(error);
+			this.updating = true;
+			while (!this.isInactive()) {
+				const revision = this.dataRevision;
+				this.binding?.update(this.data);
+				if (this.isInactive()) return;
+				if (this.dataRevision !== revision) continue;
+				break;
+			}
+
+			if (this.isInactive()) return;
+			const errors = this.updateCallbacks.emit(this.instance);
+			if (this.isInactive())
+				return throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
+			try {
+				this.host.announceUpdated(this.instance);
+			} catch (error) {
+				errors.push(error);
+			}
+			throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
+		} finally {
+			this.updating = false;
 		}
-		throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
 	}
 
 	destroy() {
@@ -175,10 +188,16 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 		unlink();
 		this.host.uninstallDescriptor(this.instance);
-		this.cleanupBinding();
+
+		const errors: unknown[] = [];
+		try {
+			this.cleanupBinding();
+		} catch (e) {
+			errors.push(e);
+		}
 
 		this.updateCallbacks.clear();
-		const errors = this.destroyCallbacks.emit(this.instance);
+		errors.push(...this.destroyCallbacks.emit(this.instance));
 		this.destroyCallbacks.clear();
 		try {
 			this.host.announceDestroyed(this.instance);
@@ -213,16 +232,19 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		const errors: unknown[] = [];
 		try {
 			this.binding?.destroy();
-		} finally {
-			for (let i = 0; i < this.derivedSources.length; i++) {
-				try {
-					this.derivedSources[i]!.destroy();
-				} catch (e) {
-					errors.push(e);
-				}
-			}
-			this.derivedSources.length = 0;
+		} catch (e) {
+			errors.push(e);
 		}
+
+		for (let i = 0; i < this.derivedSources.length; i++) {
+			try {
+				this.derivedSources[i]!.destroy();
+			} catch (e) {
+				errors.push(e);
+			}
+		}
+		this.derivedSources.length = 0;
+
 		throwCallbackErrors(errors, "Error while cleaning descriptor binding");
 	}
 }

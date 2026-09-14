@@ -12,7 +12,7 @@ import type { Registrable, Registry } from "../state/Registrable.js";
 import type { Source } from "../state/source/Source.js";
 import type { AnySourceType } from "../state/source/SourceType.js";
 import type { Disconnect } from "../util/Disconnect.js";
-import { CallbackSet } from "../util/CallbackSet.js";
+import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import { AgentState } from "./AgentState.js";
 
@@ -83,70 +83,89 @@ export class TallyContext<TEntity> {
 		const disconnectSet = getOrInsertComputed(this.agentConnections, agent, () => new Set());
 		disconnectSet.add(
 			agent.onSourceAdded((source) => {
-				this.sourceAddedCallbacks.emit(agent, source);
+				const errors: unknown[] = [];
+				errors.push(...this.sourceAddedCallbacks.emit(agent, source));
 				if (source.type.replication && source.provenance.domain === "local")
-					this.replicationCallbacks.emit(agent, {
-						target: "source",
-						event: { kind: "added", source: serializeSource(source) },
-					});
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
+							target: "source",
+							event: { kind: "added", source: serializeSource(source) },
+						})
+					);
+				throwCallbackErrors(errors, "Error during onSourceAdded");
 			})
 		);
 		disconnectSet.add(
 			agent.onSourceRemoved((source) => {
-				this.sourceRemovedCallbacks.emit(agent, source);
+				const errors = this.sourceRemovedCallbacks.emit(agent, source);
 				if (source.type.replication && source.provenance.domain === "local")
-					this.replicationCallbacks.emit(agent, {
-						target: "source",
-						event: { kind: "removed", id: source.id },
-					});
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
+							target: "source",
+							event: { kind: "removed", id: source.id },
+						})
+					);
+				throwCallbackErrors(errors, "Error during onSourceRemoved");
 			})
 		);
 		disconnectSet.add(
 			agent.onSourceUpdated((source) => {
-				this.sourceUpdatedCallbacks.emit(agent, source);
+				const errors = this.sourceUpdatedCallbacks.emit(agent, source);
 				if (source.type.replication && source.provenance.domain === "local")
-					this.replicationCallbacks.emit(agent, {
-						target: "source",
-						event: {
-							kind: "updated",
-							id: source.id,
-							data: source.type.replication!.serialize(source.get()),
-						},
-					});
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
+							target: "source",
+							event: {
+								kind: "updated",
+								id: source.id,
+								data: source.type.replication!.serialize(source.get()),
+							},
+						})
+					);
+				throwCallbackErrors(errors, "Error during onSourceUpdated");
 			})
 		);
 		disconnectSet.add(
 			agent.onDescriptorAdded((descriptor) => {
-				this.descriptorAddedCallbacks.emit(agent, descriptor);
+				const errors = this.descriptorAddedCallbacks.emit(agent, descriptor);
 				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.replicationCallbacks.emit(agent, {
-						target: "descriptor",
-						event: { kind: "added", descriptor: serializeDescriptor(descriptor) },
-					});
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
+							target: "descriptor",
+							event: { kind: "added", descriptor: serializeDescriptor(descriptor) },
+						})
+					);
+				throwCallbackErrors(errors, "Error during onDescriptorAdded");
 			})
 		);
 		disconnectSet.add(
 			agent.onDescriptorRemoved((descriptor) => {
-				this.descriptorRemovedCallbacks.emit(agent, descriptor);
+				const errors = this.descriptorRemovedCallbacks.emit(agent, descriptor);
 				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.replicationCallbacks.emit(agent, {
-						target: "descriptor",
-						event: { kind: "removed", id: descriptor.id },
-					});
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
+							target: "descriptor",
+							event: { kind: "removed", id: descriptor.id },
+						})
+					);
+				throwCallbackErrors(errors, "Error during onDescriptorRemoved");
 			})
 		);
 		disconnectSet.add(
 			agent.onDescriptorUpdated((descriptor) => {
-				this.descriptorUpdatedCallbacks.emit(agent, descriptor);
+				const errors = this.descriptorUpdatedCallbacks.emit(agent, descriptor);
 				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.replicationCallbacks.emit(agent, {
-						target: "descriptor",
-						event: {
-							kind: "updated",
-							id: descriptor.id,
-							data: descriptor.type.replication!.serialize(descriptor.get()),
-						},
-					});
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
+							target: "descriptor",
+							event: {
+								kind: "updated",
+								id: descriptor.id,
+								data: descriptor.type.replication!.serialize(descriptor.get()),
+							},
+						})
+					);
+				throwCallbackErrors(errors, "Error during onDescriptorUpdated");
 			})
 		);
 		disconnectSet.add(

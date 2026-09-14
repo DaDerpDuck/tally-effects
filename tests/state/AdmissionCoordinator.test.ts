@@ -3,11 +3,11 @@ import { AdmissionCoordinator } from "../../src/tally/state/AdmissionCoordinator
 import type { AdmissionPlan } from "../../src/tally/state/AdmissionPlan.js";
 import type { AdmissionRuntime } from "../../src/tally/state/AdmissionRuntime.js";
 import { AdmissionTransaction } from "../../src/tally/state/AdmissionTransaction.js";
-import { DuplicationGroup } from "../../src/tally/state/duplication/DuplicationGroup.js";
 import type {
 	DuplicableType,
 	DuplicationCandidate,
 } from "../../src/tally/state/duplication/DuplicationCandidate.js";
+import { DuplicationGroup } from "../../src/tally/state/duplication/DuplicationGroup.js";
 import { DuplicationIndex } from "../../src/tally/state/duplication/DuplicationIndex.js";
 import { DuplicationResolver } from "../../src/tally/state/duplication/DuplicationResolver.js";
 
@@ -88,7 +88,7 @@ describe("admission coordinator recovery", () => {
 		});
 		const type: DuplicableType<TestCandidate, number> = {
 			duplication: {
-				kind: "group",
+				policy: "group",
 				group,
 				rank: (value) => value,
 				replaceIf: () => true,
@@ -112,7 +112,7 @@ describe("admission coordinator recovery", () => {
 
 	it("attempts every replacement eviction after an earlier destruction failure", () => {
 		const type: DuplicableType<TestCandidate, number> = {
-			duplication: { kind: "replace" },
+			duplication: { policy: "replace" },
 		};
 		const index = new DuplicationIndex();
 		const coordinator = new AdmissionCoordinator(index, new DuplicationResolver(index));

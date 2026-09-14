@@ -34,9 +34,26 @@ export class DuplicationGroup {
 	readonly selector: DuplicationReplaceSelectors;
 
 	constructor(private readonly definition: DuplicationGroupDefinition) {
+		if (definition.policy !== "ignore" && definition.policy !== "replace")
+			throw new Error("Invalid duplication group policy");
+
+		const { maxStack, selector } = definition;
+		if (definition.policy === "ignore" && selector !== undefined)
+			throw new Error("ignore groups cannot specify a selector");
+		if (definition.policy === "replace" && maxStack !== undefined && selector === undefined)
+			throw new Error("replace groups with maxStack must specify a selector");
+		if (
+			selector !== undefined &&
+			selector !== "highest" &&
+			selector !== "lowest" &&
+			selector !== "newest" &&
+			selector !== "oldest"
+		)
+			throw new Error(`Invalid selector "${selector}"`);
+
 		this.policy = definition.policy;
-		this.maxStack = definition.maxStack ?? 1;
-		this.selector = definition.selector || "oldest";
+		this.maxStack = maxStack ?? 1;
+		this.selector = selector ?? "oldest";
 		if (!Number.isSafeInteger(this.maxStack) || this.maxStack < 0)
 			throw new Error("maxStack must be a nonnegative safe integer");
 	}
