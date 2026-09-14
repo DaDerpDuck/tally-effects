@@ -35,7 +35,20 @@ export class AdmissionCoordinator {
 		TRuntime extends AdmissionRuntime<TData>,
 	>(plan: AdmissionPlan<TData, TCandidate, TRuntime>): AdmissionReceipt<TCandidate> | undefined {
 		const preflightDecision = this.resolver.preflight(plan, this.domainOf(plan.type));
-		if (preflightDecision && preflightDecision.action === "ignore") return;
+		if (preflightDecision) {
+			if (preflightDecision.action === "ignore") return;
+			if (preflightDecision.action === "reconcile") {
+				const targetState = preflightDecision.target.state;
+				if (targetState.kind === "pending") {
+					targetState.admission.deferReconciliation((candidate) =>
+						preflightDecision.reconcile(candidate)
+					);
+				} else if (targetState.kind === "live") {
+					preflightDecision.reconcile(targetState.candidate);
+				}
+				return;
+			}
+		}
 
 		const transaction = new AdmissionTransaction(plan, this.index);
 

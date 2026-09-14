@@ -91,13 +91,13 @@ export class DuplicationResolver {
 		if (policy.kind === "allow") return DuplicationResolver.DecideAddStructure;
 
 		if (policy.kind === "ignore") {
-			return this.hasOther(this.index.view(domain, key), entry)
+			return this.hasOther(this.index.borrowedView(domain, key), entry)
 				? DuplicationResolver.DecideIgnoreStructure
 				: DuplicationResolver.DecideAddStructure;
 		}
 
 		if (policy.kind === "replace") {
-			const evictions = this.index.view(domain, key).filter((x) => x !== entry);
+			const evictions = this.index.borrowedView(domain, key).filter((x) => x !== entry);
 			return evictions.length > 0
 				? {
 						action: "add",
@@ -107,7 +107,7 @@ export class DuplicationResolver {
 		}
 
 		if (policy.kind === "reconcile") {
-			const reconcileTarget = this.firstOther(this.index.view(domain, key), entry) as
+			const reconcileTarget = this.firstOther(this.index.borrowedView(domain, key), entry) as
 				DuplicationEntry<TData, TCandidate, TRuntime> | undefined;
 			if (reconcileTarget) {
 				return {
@@ -121,7 +121,7 @@ export class DuplicationResolver {
 		if (policy.kind === "group") {
 			if (policy.group.policy === "ignore") {
 				let conflictCount = 0;
-				for (const conflict of this.index.view(domain, key)) {
+				for (const conflict of this.index.borrowedView(domain, key)) {
 					if (conflict !== entry) conflictCount++;
 				}
 
@@ -137,8 +137,10 @@ export class DuplicationResolver {
 				so we must revalidate the index hasn't changed */
 				const selector = policy.group.selector;
 				for (;;) {
-					const snapshot = this.index.snapshot(domain, key);
-					const conflicts = snapshot.entries.filter((x) => x !== entry);
+					const basis = this.index.basis(domain, key);
+					const conflicts = this.index
+						.borrowedView(domain, key)
+						.filter((x) => x !== entry);
 					if (conflicts.length < policy.group.maxStack)
 						return DuplicationResolver.DecideAddStructure;
 
@@ -172,9 +174,9 @@ export class DuplicationResolver {
 					}
 
 					if (policy.replaceIf(rank, policy.rank(data))) {
-						if (this.index.isCurrent(snapshot.basis))
+						if (this.index.isCurrent(basis))
 							return { action: "add", evict: [selectedCandidate] };
-					} else if (this.index.isCurrent(snapshot.basis)) {
+					} else if (this.index.isCurrent(basis)) {
 						return DuplicationResolver.DecideIgnoreStructure;
 					}
 				}

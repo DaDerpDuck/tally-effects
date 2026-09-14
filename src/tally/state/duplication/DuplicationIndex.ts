@@ -89,11 +89,11 @@ export class DuplicationIndex {
 	}
 
 	size(domain: object, key: string | undefined) {
-		return this.view(domain, key).length;
+		return this.borrowedView(domain, key).length;
 	}
 
 	first(domain: object, key: string | undefined) {
-		return this.view(domain, key)[0];
+		return this.borrowedView(domain, key)[0];
 	}
 
 	snapshot(domain: object, key: string | undefined): DuplicationSnapshot {
@@ -122,7 +122,7 @@ export class DuplicationIndex {
 		return basis.token === bucket && basis.revision === bucket.revision;
 	}
 
-	view(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
+	borrowedView(domain: object, key: string | undefined): readonly AnyDuplicationEntry[] {
 		return this.getBucket(domain, key)?.entries ?? DuplicationIndex.EmptyArray;
 	}
 

@@ -23,6 +23,7 @@ export class SourceManager {
 	private readonly modifierRegistry = new ModifierRegistry();
 	private readonly sources = new Set<Source>();
 	private readonly sourceMap = new Map<AnySourceType, Set<Source>>();
+	private readonly sourceHost = this.createHost();
 
 	private readonly propertyCallbacks = new Map<AnyProperty, CallbackSet<[unknown, unknown]>>();
 	private readonly sourceAddedCallbacks = new CallbackSet<[source: Source]>();
@@ -156,13 +157,13 @@ export class SourceManager {
 				return new SourceRuntime(
 					lease,
 					{ id, type, priority, key, provenance, data },
-					this.createHost(type)
+					this.sourceHost
 				);
 			},
 		};
 	}
 
-	private createHost<TData>(type: SourceType<TData>): SourceHost {
+	private createHost(): SourceHost {
 		return {
 			contributeModifiers: (type, data) => this.contributeModifiers(type, data),
 			applyModifiers: (contributions, source) =>
@@ -189,7 +190,7 @@ export class SourceManager {
 				this.sources.add(source);
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
 
-				getOrInsertComputed(this.sourceMap, type, () => new Set()).add(source);
+				getOrInsertComputed(this.sourceMap, source.type, () => new Set()).add(source);
 			},
 			uninstallSource: (source, handles) => {
 				for (const handle of handles) this.dirtyProperties.add(handle.property);
