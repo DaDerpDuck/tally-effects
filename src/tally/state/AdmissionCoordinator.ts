@@ -16,6 +16,11 @@ import type {
 	DuplicationResolver,
 } from "./duplication/DuplicationResolver.js";
 
+export interface AdmissionReceipt<T> {
+	publish(): T | undefined;
+	rollback(): void;
+}
+
 export class AdmissionCoordinator {
 	private static readonly ZeroScore = () => 0;
 
@@ -28,9 +33,7 @@ export class AdmissionCoordinator {
 		TData,
 		TCandidate extends DuplicationCandidate<TData>,
 		TRuntime extends AdmissionRuntime<TData>,
-	>(
-		plan: AdmissionPlan<TData, TCandidate, TRuntime>
-	): (() => TCandidate | undefined) | undefined {
+	>(plan: AdmissionPlan<TData, TCandidate, TRuntime>): AdmissionReceipt<TCandidate> | undefined {
 		const preflightDecision = this.resolver.preflight(plan, this.domainOf(plan.type));
 		if (preflightDecision && preflightDecision.action === "ignore") return;
 
@@ -102,22 +105,29 @@ export class AdmissionCoordinator {
 
 			transaction.beginAnnouncing();
 
-			return () => {
-				if (transaction.isTerminal()) return;
-				try {
-					runtime.announceAdded();
+			const receipt: AdmissionReceipt<TCandidate> = {
+				publish: () => {
 					if (transaction.isTerminal()) return;
+					try {
+						runtime.announceAdded();
+						if (transaction.isTerminal()) return;
 
-					runtime.markLive(() => this.index.unlink(entry));
-					this.index.activate(entry, runtime);
-					transaction.complete();
+						runtime.markLive(() => this.index.unlink(entry));
+						this.index.activate(entry, runtime);
+						transaction.complete();
 
-					return runtime.instance as TCandidate;
-				} catch (e) {
+						return runtime.instance as TCandidate;
+					} catch (e) {
+						transaction.cancel();
+						throw e;
+					}
+				},
+				rollback: () => {
 					transaction.cancel();
-					throw e;
-				}
+				},
 			};
+
+			return receipt;
 		} catch (e) {
 			transaction.cancel();
 			throw e;

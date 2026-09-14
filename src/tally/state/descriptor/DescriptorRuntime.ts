@@ -41,6 +41,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	private ownership: RuntimeOwnership;
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	private data: TDescriptorData;
+	private dataRevision = 0;
 	private installed = false;
 	private announced = false;
 
@@ -137,8 +138,18 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	set(data: TDescriptorData) {
 		this.assertAlive();
 		if (this.type.dataEquals(this.data, data)) return;
+
 		this.data = data;
-		this.binding?.update(data);
+		this.dataRevision++;
+
+		while (!this.isInactive()) {
+			const revision = this.dataRevision;
+			this.binding?.update(this.data);
+			if (this.isInactive()) return;
+			if (this.dataRevision !== revision) continue;
+			break;
+		}
+
 		if (this.isInactive()) return;
 		const errors = this.updateCallbacks.emit(this.instance);
 		if (this.isInactive())
@@ -199,11 +210,19 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	}
 
 	private cleanupBinding() {
+		const errors: unknown[] = [];
 		try {
 			this.binding?.destroy();
 		} finally {
-			this.derivedSources.forEach((source) => source.destroy());
+			for (let i = 0; i < this.derivedSources.length; i++) {
+				try {
+					this.derivedSources[i]!.destroy();
+				} catch (e) {
+					errors.push(e);
+				}
+			}
 			this.derivedSources.length = 0;
 		}
+		throwCallbackErrors(errors, "Error while cleaning descriptor binding");
 	}
 }

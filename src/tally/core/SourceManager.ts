@@ -1,7 +1,7 @@
 import { ModifierRegistry, type ModifierHandle } from "../modifier/ModifierRegistry.js";
 import { OrderingDomain } from "../modifier/OrderingDomain.js";
 import type { AnyProperty, Property } from "../property/Property.js";
-import type { AdmissionCoordinator } from "../state/AdmissionCoordinator.js";
+import type { AdmissionCoordinator, AdmissionReceipt } from "../state/AdmissionCoordinator.js";
 import type { AdmissionPlan } from "../state/AdmissionPlan.js";
 import type { StateProvenance } from "../state/Provenance.js";
 import type { Source } from "../state/source/Source.js";
@@ -43,10 +43,22 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		const announce = this.batch(() => {
-			return this.admission.admit(this.planSource(type, data, options));
-		});
-		return announce?.();
+		let receipt: AdmissionReceipt<Source<TData>> | undefined;
+		try {
+			this.batch(
+				() => (receipt = this.admission.admit(this.planSource(type, data, options)))
+			);
+		} catch (e) {
+			const errors = [e];
+			try {
+				if (receipt) this.batch(() => receipt!.rollback());
+			} catch (e2) {
+				errors.push(e2);
+			}
+			if (errors.length === 1) throw errors[0];
+			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
+		}
+		return receipt?.publish();
 	}
 
 	get<T>(property: Property<T>): T {
@@ -106,11 +118,21 @@ export class SourceManager {
 	}
 
 	destroyAllSources() {
-		this.batch(() => this.sources.forEach((source) => source.destroy()));
+		const errors: unknown[] = [];
+		this.batch(() =>
+			this.sources.forEach((source) => {
+				try {
+					source.destroy();
+				} catch (e) {
+					errors.push(e);
+				}
+			})
+		);
 		this.sources.clear();
 		this.modifierRegistry.clear();
 		this.resolvedProperties.clear();
 		this.dirtyProperties.clear();
+		throwCallbackErrors(errors, "Error when destroying sources");
 	}
 
 	private planSource<TData>(
@@ -226,17 +248,26 @@ export class SourceManager {
 		priority: number,
 		provenance: StateProvenance
 	): ModifierHandle[] {
-		return contribution.map((modifier, index) =>
-			modifier.applyTo(this.modifierRegistry, {
-				priority,
-				domain:
-					provenance.domain === "local" || provenance.domain === "descriptor-local"
-						? OrderingDomain.local
-						: OrderingDomain.authoritative,
-				sequence: provenance.sequence,
-				modifierIndex: index,
-			})
-		);
+		const handles = new Array<ModifierHandle>(contribution.length);
+
+		try {
+			for (let i = 0; i < contribution.length; i++) {
+				handles[i] = contribution[i]!.applyTo(this.modifierRegistry, {
+					priority,
+					domain:
+						provenance.domain === "local" || provenance.domain === "descriptor-local"
+							? OrderingDomain.local
+							: OrderingDomain.authoritative,
+					sequence: provenance.sequence,
+					modifierIndex: i,
+				});
+			}
+
+			return handles;
+		} catch (e) {
+			this.clearModifierHandles(handles.filter((x) => x !== undefined));
+			throw e;
+		}
 	}
 
 	private clearModifierHandles(handles: ModifierHandle[]) {

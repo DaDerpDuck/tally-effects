@@ -124,12 +124,14 @@ export class AdmissionTransaction<
 		if (this.isTerminal()) return;
 		this.state = "cancelled";
 
-		if (this.entry) this.index.unlink(this.entry);
-		this.runtime?.rollbackAdmission();
+		const runtime = this.runtime;
 
 		this.pendingReconciliations.length = 0;
 		this.runtime = undefined;
 		this.plan = undefined;
+
+		if (this.entry) this.index.unlink(this.entry);
+		runtime?.rollbackAdmission();
 	}
 
 	discardPlan() {

@@ -1,4 +1,4 @@
-import type { AdmissionCoordinator } from "../state/AdmissionCoordinator.js";
+import type { AdmissionCoordinator, AdmissionReceipt } from "../state/AdmissionCoordinator.js";
 import type { AdmissionPlan } from "../state/AdmissionPlan.js";
 import type { AnyDescriptor, Descriptor } from "../state/descriptor/Descriptor.js";
 import type { DescriptorBinding } from "../state/descriptor/DescriptorBinding.js";
@@ -61,18 +61,31 @@ export class DescriptorManager<TEntity> {
 				"Attempted to add a descriptor before a descriptor handler was assigned"
 			);
 
-		const announce = this.sources.batch(() => {
-			return this.admission.admit(
-				this.planDescriptor(
-					handler as DescriptorHandler<TEntity, TDescriptorData, TSourceData>,
-					agent,
-					type,
-					data,
-					options
-				)
+		let receipt: AdmissionReceipt<Descriptor<TDescriptorData, TSourceData>> | undefined;
+		try {
+			this.sources.batch(
+				() =>
+					(receipt = this.admission.admit(
+						this.planDescriptor(
+							handler as DescriptorHandler<TEntity, TDescriptorData, TSourceData>,
+							agent,
+							type,
+							data,
+							options
+						)
+					))
 			);
-		});
-		return announce?.();
+		} catch (e) {
+			const errors = [e];
+			try {
+				if (receipt) this.sources.batch(() => receipt!.rollback());
+			} catch (e2) {
+				errors.push(e2);
+			}
+			if (errors.length === 1) throw errors[0];
+			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
+		}
+		return receipt?.publish();
 	}
 
 	registerDescriptorHandler<TDescriptorData, TSourceData>(
@@ -105,10 +118,18 @@ export class DescriptorManager<TEntity> {
 	}
 
 	destroyAllDescriptors() {
-		this.descriptorMap
-			.values()
-			.forEach((descriptors) => descriptors.forEach((x) => x.destroy()));
+		const errors: unknown[] = [];
+		this.descriptorMap.values().forEach((descriptors) =>
+			descriptors.forEach((x) => {
+				try {
+					x.destroy();
+				} catch (e) {
+					errors.push(e);
+				}
+			})
+		);
 		this.descriptorMap.clear();
+		throwCallbackErrors(errors, "Error when destroying descriptors");
 	}
 
 	disconnectAll() {

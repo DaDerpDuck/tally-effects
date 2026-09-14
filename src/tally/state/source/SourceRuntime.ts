@@ -194,10 +194,17 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 		unlink();
 		this.host.uninstallSource(this.instance, this.handles);
-		this.host.resolveModifiers();
+
+		const errors: unknown[] = [];
+
+		try {
+			this.host.resolveModifiers();
+		} catch (error) {
+			errors.push(error);
+		}
 
 		this.updateCallbacks.clear();
-		const errors = this.destroyCallbacks.emit(this.instance);
+		errors.push(...this.destroyCallbacks.emit(this.instance));
 		this.destroyCallbacks.clear();
 		try {
 			this.host.announceDestroyed(this.instance);

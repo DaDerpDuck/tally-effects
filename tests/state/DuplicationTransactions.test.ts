@@ -618,7 +618,7 @@ describe("duplication admission transactions", () => {
 		expect(agent.get(Property)).toBe(2);
 	});
 
-	it("removes modifiers acquired before a later modifier application fails", () => {
+	it("rolls back earlier modifier handles when a later contribution throws", () => {
 		const Property = defineNumberProperty({
 			name: "PartialModifierApplicationProperty",
 			defaultValue: 0,

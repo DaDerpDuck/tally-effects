@@ -223,8 +223,19 @@ export class AgentState<TEntity> {
 		const errors = this.destroyCallbacks.emit();
 		this.sources.disconnectAll();
 		this.descriptors.disconnectAll();
-		this.destroyAllSources();
-		this.destroyAllDescriptors();
+
+		try {
+			this.destroyAllSources();
+		} catch (e) {
+			errors.push(e);
+		}
+
+		try {
+			this.destroyAllDescriptors();
+		} catch (e) {
+			errors.push(e);
+		}
+
 		this.destroyCallbacks.clear();
 		throwCallbackErrors(errors, "Errors occurred while destroying AgentState");
 	}
