@@ -1,36 +1,56 @@
+import {
+	tallyReport,
+	type TallyReport,
+	type TallyReporter,
+	type TallyReportSubject,
+} from "../core/TallyReporter.js";
 import type { Disconnect } from "./Disconnect.js";
 
+interface Subscription<TArgs extends readonly unknown[]> {
+	callback: (...args: TArgs) => void;
+	connected: boolean;
+}
+
 export class CallbackSet<TArgs extends readonly unknown[]> {
-	private readonly callbacks = new Set<(...args: TArgs) => void>();
+	private readonly subscriptions = new Set<Subscription<TArgs>>();
+
+	constructor(
+		private readonly reporter: TallyReporter,
+		private readonly context: Omit<TallyReport, "error" | "code"> & {
+			readonly code?: "callback-failed";
+		},
+		private readonly subjectProvider?: (...args: TArgs) => TallyReportSubject
+	) {}
 
 	add(callback: (...args: TArgs) => void): Disconnect {
-		this.callbacks.add(callback);
-		return () => this.callbacks.delete(callback);
+		const subscription: Subscription<TArgs> = { callback, connected: true };
+		this.subscriptions.add(subscription);
+		return () => {
+			if (!subscription.connected) return;
+			subscription.connected = false;
+			this.subscriptions.delete(subscription);
+		};
 	}
 
-	emit(...args: TArgs): unknown[] {
-		const errors = new Array<unknown>();
-
-		for (const callback of this.callbacks) {
+	emit(...args: TArgs): void {
+		const subscriptions = [...this.subscriptions];
+		for (const subscription of subscriptions) {
+			if (!subscription.connected) continue;
 			try {
-				callback(...args);
-			} catch (e) {
-				errors.push(e);
+				subscription.callback(...args);
+			} catch (callbackError) {
+				tallyReport(this.reporter, {
+					...this.context,
+					subject: this.subjectProvider?.(...args) ?? this.context.subject,
+					code: "callback-failed",
+					error: callbackError,
+				});
 			}
 		}
-
-		return errors;
 	}
 
 	clear() {
-		this.callbacks.clear();
+		for (const subscription of this.subscriptions) subscription.connected = false;
+		this.subscriptions.clear();
 	}
-}
-
-export function throwCallbackErrors(errors: readonly unknown[], message: string) {
-	if (errors.length === 0) return;
-	const details = errors
-		.map((error) => (error instanceof Error ? error.message : String(error)))
-		.join("; ");
-	throw new AggregateError(errors, `${message}: ${details}`);
 }

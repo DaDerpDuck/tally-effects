@@ -9,6 +9,7 @@ import {
 	type Source,
 } from "../../src/index.js";
 import type { Scenario } from "../shared/scenario.js";
+import { benchmarkReporter } from "../shared/fixtures.js";
 
 export function createCombatScenario(agentCount: number, batched: boolean): Scenario {
 	const attack = defineNumberProperty({ name: "Attack", defaultValue: 100 });
@@ -50,7 +51,7 @@ export function createCombatScenario(agentCount: number, batched: boolean): Scen
 	let notifications = 0;
 	let checksum = 0;
 	const agents = Array.from({ length: agentCount }, () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, benchmarkReporter);
 		agent.registerDescriptorHandler(shieldType, (context, value) => {
 			const source = context.addSource(value)!;
 			return { source, update: (next) => source.set(next), destroy: () => source.destroy() };

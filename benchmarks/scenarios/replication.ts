@@ -12,6 +12,7 @@ import {
 	type ReplicationSnapshot,
 } from "../../src/index.js";
 import type { Scenario } from "../shared/scenario.js";
+import { benchmarkReporter } from "../shared/fixtures.js";
 
 const numberReplication: ReplicationDefinition<number> = {
 	serialize: (value) => value,
@@ -90,7 +91,7 @@ export function createSyncScenario(size: number, mode: "snapshot" | "events"): S
 		source: sourceType,
 		replication: numberReplication,
 	});
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	agent.registerDescriptorHandler(descriptorType, (context, data) => {
 		const source = context.addSource(data)!;
 		return { source, update: (next) => source.set(next), destroy: () => source.destroy() };

@@ -8,9 +8,20 @@ import {
 	type ModifierContribution,
 	type Descriptor,
 	type Source,
+	testReporter,
+	createTestReporter,
 } from "../src/index.js";
 
-describe("duplication admission transactions", () => {
+declare global {
+	var __tallyDuplicationTransactionSuite: string | undefined;
+}
+
+const selectedSuite = globalThis.__tallyDuplicationTransactionSuite;
+const describeSuite = (name: string, callback: () => void) => {
+	if (selectedSuite === undefined || selectedSuite === name) describe(name, callback);
+};
+
+describeSuite("reentrant admission, reconciliation, and rollback", () => {
 	it("preserves a group's stack limit when an eviction callback reenters admission", () => {
 		const group = new DuplicationGroup({
 			policy: "replace",
@@ -23,7 +34,7 @@ describe("duplication admission transactions", () => {
 			duplication: group.member(),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const first = agent.addSource(SourceType, 1)!;
 		first.onDestroy(() => agent.addSource(SourceType, 2));
 
@@ -39,7 +50,7 @@ describe("duplication admission transactions", () => {
 			selector: "lowest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const SourceType = defineSourceType<number>({
 			name: "ReentrantGroupedRankingSource",
 			priority: 100,
@@ -79,7 +90,7 @@ describe("duplication admission transactions", () => {
 				return [];
 			},
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const existing = agent.addSource(SourceType, { rank: 5 })!;
 
 		expect(agent.addSource(SourceType, { rank: 10 })).toBeUndefined();
@@ -93,7 +104,7 @@ describe("duplication admission transactions", () => {
 			selector: "oldest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const SourceType = defineSourceType<number>({
 			name: "ReentrantGroupedPublishSource",
 			priority: 100,
@@ -123,7 +134,7 @@ describe("duplication admission transactions", () => {
 			selector: "oldest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const SourceType = defineSourceType<number>({
 			name: "CancelledPendingSource",
 			priority: 100,
@@ -154,7 +165,7 @@ describe("duplication admission transactions", () => {
 			selector: "oldest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const SourceType = defineSourceType<number>({
 			name: "DestroyedUpdatingSource",
 			priority: 100,
@@ -194,7 +205,7 @@ describe("duplication admission transactions", () => {
 				return [];
 			},
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 
 		expect(() => agent.addSource(SourceType, 1)).toThrow("contribution failed");
 		shouldThrow = false;
@@ -213,7 +224,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		let shouldBind = false;
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			if (!shouldBind) return undefined;
@@ -248,7 +259,7 @@ describe("duplication admission transactions", () => {
 			duplication: group.member(),
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			if (!reentered) {
 				reentered = true;
@@ -280,7 +291,7 @@ describe("duplication admission transactions", () => {
 			name: "FailedDescriptorHandler",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			ctx.addSource(data);
 			throw new Error("handler failed");
@@ -298,7 +309,7 @@ describe("duplication admission transactions", () => {
 		});
 		let reentered = false;
 		const evaluated = new Array<number>();
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const SourceType = defineSourceType<number>({
 			name: "PendingReconciliationSource",
 			priority: 100,
@@ -328,7 +339,7 @@ describe("duplication admission transactions", () => {
 			name: "ReentrantLiveSourceUpdateProperty",
 			defaultValue: 0,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		// eslint-disable-next-line prefer-const
 		let source: Source<number> | undefined;
 		let reentered = false;
@@ -353,7 +364,7 @@ describe("duplication admission transactions", () => {
 
 	it("unregisters a Source destroyed by pending reconciliation", () => {
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const added = new Array<Source<number>>();
 		const SourceType = defineSourceType<number>({
 			name: "PendingReconciliationDestroyedSource",
@@ -378,22 +389,24 @@ describe("duplication admission transactions", () => {
 		expect(added).toEqual([]);
 		expect(agent.addSource(SourceType, 3)).toBeDefined();
 	});
+});
 
-	it("cancels the incoming reservation when eviction throws", () => {
+describeSuite("Source admission and teardown reentrancy", () => {
+	it("reports eviction destroy callback failures and admits the replacement", () => {
 		const SourceType = defineSourceType<number>({
 			name: "ThrowingEvictionSource",
 			priority: 100,
 			duplication: { policy: "replace" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const first = agent.addSource(SourceType, 1)!;
 		first.onDestroy(() => {
 			throw new Error("destroy failed");
 		});
 
-		expect(() => agent.addSource(SourceType, 2)).toThrow("destroy failed");
-		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(() => agent.addSource(SourceType, 2)).not.toThrow();
+		expect(agent.getSources(SourceType).size).toBe(1);
 
 		expect(agent.addSource(SourceType, 3)).toBeDefined();
 	});
@@ -405,7 +418,7 @@ describe("duplication admission transactions", () => {
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const first = agent.addSource(SourceType, 1)!;
 		let replacement: Source<number> | undefined;
 		agent.onSourceRemoved(() => {
@@ -429,7 +442,7 @@ describe("duplication admission transactions", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const source = agent.addSource(SourceType, 1)!;
 		const laterDestroyCallback = vi.fn();
 		const removed = vi.fn();
@@ -439,7 +452,7 @@ describe("duplication admission transactions", () => {
 		source.onDestroy(laterDestroyCallback);
 		agent.onSourceRemoved(removed);
 
-		expect(() => source.destroy()).toThrow("source destroy callback failed");
+		expect(() => source.destroy()).not.toThrow();
 
 		expect(laterDestroyCallback).toHaveBeenCalledWith(source);
 		expect(removed).toHaveBeenCalledWith(source);
@@ -459,7 +472,7 @@ describe("duplication admission transactions", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const added = vi.fn();
 		agent.onSourceAdded(added);
 		agent.onPropertyChanged(Property, (value) => {
@@ -486,7 +499,7 @@ describe("duplication admission transactions", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const first = agent.addSource(SourceType, 1)!;
 		let replacement: Source<number> | undefined;
 		agent.onPropertyChanged(Property, (value) => {
@@ -507,7 +520,7 @@ describe("duplication admission transactions", () => {
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const disconnect = agent.onSourceAdded((source) => {
 			disconnect();
 			source.destroy();
@@ -524,7 +537,7 @@ describe("duplication admission transactions", () => {
 			priority: 100,
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const events = new Array<string>();
 		agent.onSourceAdded((source) => {
 			events.push("added");
@@ -537,23 +550,24 @@ describe("duplication admission transactions", () => {
 		expect(events).toEqual(["added", "removed"]);
 	});
 
-	it("rolls back a Source when an added observer throws", () => {
+	it("reports a Source added observer failure without rolling back", () => {
 		const SourceType = defineSourceType<number>({
 			name: "ThrowingAddedSource",
 			priority: 100,
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		let shouldThrow = true;
 		agent.onSourceAdded(() => {
 			if (shouldThrow) throw new Error("added callback failed");
 		});
 
-		expect(() => agent.addSource(SourceType, 1)).toThrow("added callback failed");
-		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(() => agent.addSource(SourceType, 1)).not.toThrow();
+		expect(agent.getSources(SourceType).size).toBe(1);
 
 		shouldThrow = false;
+		agent.getSources(SourceType).forEach((source) => source.destroy());
 		expect(agent.addSource(SourceType, 2)).toBeDefined();
 	});
 
@@ -568,14 +582,14 @@ describe("duplication admission transactions", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.onSourceAdded(() => {
 			throw new Error("added callback failed");
 		});
 
-		expect(() => agent.addSource(SourceType, 1)).toThrow("added callback failed");
-		expect(agent.getSources(SourceType)).toEqual(new Set());
-		expect(agent.get(Property)).toBe(0);
+		expect(() => agent.addSource(SourceType, 1)).not.toThrow();
+		expect(agent.getSources(SourceType).size).toBe(1);
+		expect(agent.get(Property)).toBe(1);
 	});
 
 	it("resolves properties after rolling back a Descriptor whose added observer throws", () => {
@@ -593,7 +607,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -606,13 +620,13 @@ describe("duplication admission transactions", () => {
 			throw new Error("added callback failed");
 		});
 
-		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("added callback failed");
-		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
-		expect(agent.getSources(OutputType)).toEqual(new Set());
-		expect(agent.get(Property)).toBe(0);
+		expect(() => agent.addDescriptor(DescriptorType, 1)).not.toThrow();
+		expect(agent.getDescriptors(DescriptorType).size).toBe(1);
+		expect(agent.getSources(OutputType).size).toBe(1);
+		expect(agent.get(Property)).toBe(1);
 	});
 
-	it("rolls back a Source staged before a throwing property flush", () => {
+	it("reports a Source property observer failure after admission", () => {
 		const Property = defineNumberProperty({
 			name: "ThrowingAdmissionFlushSourceProperty",
 			defaultValue: 0,
@@ -623,20 +637,21 @@ describe("duplication admission transactions", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.onPropertyChanged(Property, (value) => {
 			if (value === 1) throw new Error("admission flush failed");
 		});
 
-		expect(() => agent.addSource(SourceType, 1)).toThrow("admission flush failed");
-		expect(agent.getSources(SourceType)).toEqual(new Set());
-		expect(agent.get(Property)).toBe(0);
+		expect(() => agent.addSource(SourceType, 1)).not.toThrow();
+		expect(agent.getSources(SourceType).size).toBe(1);
+		expect(agent.get(Property)).toBe(1);
 
+		agent.getSources(SourceType).forEach((source) => source.destroy());
 		expect(agent.addSource(SourceType, 2)).toBeDefined();
 		expect(agent.get(Property)).toBe(2);
 	});
 
-	it("rolls back a Descriptor staged before a throwing property flush", () => {
+	it("reports a Descriptor property observer failure after admission", () => {
 		const Property = defineNumberProperty({
 			name: "ThrowingAdmissionFlushDescriptorProperty",
 			defaultValue: 0,
@@ -651,7 +666,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -664,15 +679,18 @@ describe("duplication admission transactions", () => {
 			if (value === 1) throw new Error("admission flush failed");
 		});
 
-		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("admission flush failed");
-		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
-		expect(agent.getSources(OutputType)).toEqual(new Set());
-		expect(agent.get(Property)).toBe(0);
+		expect(() => agent.addDescriptor(DescriptorType, 1)).not.toThrow();
+		expect(agent.getDescriptors(DescriptorType).size).toBe(1);
+		expect(agent.getSources(OutputType).size).toBe(1);
+		expect(agent.get(Property)).toBe(1);
 
+		agent.getDescriptors(DescriptorType).forEach((descriptor) => descriptor.destroy());
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 		expect(agent.get(Property)).toBe(2);
 	});
+});
 
+describeSuite("failed preparation and contribution rollback", () => {
 	it("rolls back earlier modifier handles when a later contribution throws", () => {
 		const Property = defineNumberProperty({
 			name: "PartialModifierApplicationProperty",
@@ -689,7 +707,8 @@ describe("duplication admission transactions", () => {
 			contribute: (value) =>
 				value === 1 ? [Property.add(1), throwingContribution] : [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
 
 		expect(() => agent.addSource(SourceType, 1)).toThrow("second modifier failed");
 		expect(agent.getSources(SourceType)).toEqual(new Set());
@@ -709,7 +728,7 @@ describe("duplication admission transactions", () => {
 			priority: 100,
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const source = agent.addSource(SourceType, 1)!;
 		const destroyed = vi.fn();
 		const removed = vi.fn();
@@ -719,13 +738,15 @@ describe("duplication admission transactions", () => {
 			if (value === 0) throw new Error("removal resolution failed");
 		});
 
-		expect(() => source.destroy()).toThrow("removal resolution failed");
+		expect(() => source.destroy()).not.toThrow();
 		expect(destroyed).toHaveBeenCalledWith(source);
 		expect(removed).toHaveBeenCalledWith(source);
 		expect(agent.getSources(SourceType)).toEqual(new Set());
 		expect(agent.get(Property)).toBe(0);
 	});
+});
 
+describeSuite("Descriptor admission and teardown reentrancy", () => {
 	it("does not retain a Descriptor destroyed during its added notification", () => {
 		const OutputType = defineSourceType<number>({
 			name: "AddedObserverDestroyedDescriptorOutput",
@@ -737,7 +758,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -771,7 +792,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -801,7 +822,7 @@ describe("duplication admission transactions", () => {
 			name: "DestroyedPendingReconciliationProperty",
 			defaultValue: 0,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		let reentered = false;
 		const SourceType = defineSourceType<number>({
 			name: "DestroyedPendingReconciliationSource",
@@ -837,7 +858,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -870,7 +891,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		let shouldThrow = true;
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
@@ -885,7 +906,7 @@ describe("duplication admission transactions", () => {
 		});
 		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
 
-		expect(() => descriptor.destroy()).toThrow("binding destroy failed");
+		expect(() => descriptor.destroy()).not.toThrow();
 		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
 		expect(agent.getSources(OutputType)).toEqual(new Set());
 
@@ -904,7 +925,7 @@ describe("duplication admission transactions", () => {
 			name: "RemovedDescriptorReplacement",
 			source: OutputType,
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -940,7 +961,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -958,7 +979,7 @@ describe("duplication admission transactions", () => {
 		descriptor.onDestroy(laterDestroyCallback);
 		agent.onDescriptorRemoved(removed);
 
-		expect(() => descriptor.destroy()).toThrow("descriptor destroy callback failed");
+		expect(() => descriptor.destroy()).not.toThrow();
 
 		expect(laterDestroyCallback).toHaveBeenCalledWith(descriptor);
 		expect(removed).toHaveBeenCalledWith(descriptor);
@@ -978,7 +999,7 @@ describe("duplication admission transactions", () => {
 			name: "AddedObserverRemovedDescriptor",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -999,7 +1020,7 @@ describe("duplication admission transactions", () => {
 		expect(events).toEqual(["added", "removed"]);
 	});
 
-	it("rolls back a Descriptor when an added observer throws", () => {
+	it("reports a Descriptor added observer failure without rolling back", () => {
 		const OutputType = defineSourceType<number>({
 			name: "ThrowingAddedDescriptorOutput",
 			priority: 100,
@@ -1010,7 +1031,7 @@ describe("duplication admission transactions", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -1024,15 +1045,16 @@ describe("duplication admission transactions", () => {
 			if (shouldThrow) throw new Error("added callback failed");
 		});
 
-		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("added callback failed");
-		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
-		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(() => agent.addDescriptor(DescriptorType, 1)).not.toThrow();
+		expect(agent.getDescriptors(DescriptorType).size).toBe(1);
+		expect(agent.getSources(OutputType).size).toBe(1);
 
 		shouldThrow = false;
+		agent.getDescriptors(DescriptorType).forEach((descriptor) => descriptor.destroy());
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
 
-	it("makes a Descriptor terminal even when rollback binding cleanup throws", () => {
+	it("makes a Descriptor terminal when binding cleanup throws", () => {
 		const OutputType = defineSourceType<number>({
 			name: "ThrowingRollbackDescriptorOutput",
 			priority: 100,
@@ -1042,7 +1064,7 @@ describe("duplication admission transactions", () => {
 			name: "ThrowingRollbackDescriptor",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		let captured: Descriptor<number, number> | undefined;
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
@@ -1059,7 +1081,11 @@ describe("duplication admission transactions", () => {
 			throw new Error("added callback failed");
 		});
 
-		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow();
+		expect(() => agent.addDescriptor(DescriptorType, 1)).not.toThrow();
+		expect(agent.getDescriptors(DescriptorType).size).toBe(1);
+		expect(agent.getSources(OutputType).size).toBe(1);
+
+		expect(() => captured!.destroy()).not.toThrow();
 		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
 		expect(agent.getSources(OutputType)).toEqual(new Set());
 		expect(() => captured!.set(2)).toThrow("Descriptor has been destroyed");
@@ -1075,7 +1101,7 @@ describe("duplication admission transactions", () => {
 			name: "AggregateDescriptorCleanup",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			source.onDestroy(() => {
@@ -1093,23 +1119,14 @@ describe("duplication admission transactions", () => {
 		const removed = vi.fn();
 		agent.onDescriptorRemoved(removed);
 
-		let error: unknown;
-		try {
-			descriptor.destroy();
-		} catch (caught) {
-			error = caught;
-		}
-
-		expect(error).toBeInstanceOf(AggregateError);
-		expect((error as Error).message).toContain("binding cleanup failed");
-		expect((error as Error).message).toContain("derived source cleanup failed");
+		expect(() => descriptor.destroy()).not.toThrow();
 		expect(removed).toHaveBeenCalledWith(descriptor);
 		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
 		expect(agent.getSources(OutputType)).toEqual(new Set());
 	});
 });
 
-describe("duplication group validation", () => {
+describeSuite("duplication group validation", () => {
 	it.each([Number.NaN, 1.5])("rejects an invalid maxStack of %s", (maxStack) => {
 		expect(
 			() =>

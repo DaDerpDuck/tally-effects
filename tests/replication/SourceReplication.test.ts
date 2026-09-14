@@ -9,6 +9,7 @@ import {
 	type ReplicationEvent,
 	type SourceType,
 	TallyContext,
+	testReporter,
 } from "../src/index.js";
 
 interface SourceData {
@@ -46,7 +47,7 @@ function createReplicationFixture({
 }: ReplicationFixtureOptions = {}) {
 	const allSourceTypes = [ValueSource, ...sourceTypes];
 	const createTally = () => {
-		const tally = new TallyContext<undefined>();
+		const tally = new TallyContext<undefined>(testReporter);
 		tally.register(Value);
 		for (const sourceType of allSourceTypes) tally.register(sourceType);
 		return tally;

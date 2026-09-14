@@ -6,13 +6,14 @@ import type { AdmissionPlan } from "../state/AdmissionPlan.js";
 import type { StateProvenance } from "../state/Provenance.js";
 import type { Source } from "../state/source/Source.js";
 import type { SourceContribution } from "../state/source/SourceContribution.js";
-import { SourceRuntime, type SourceHost } from "../state/source/SourceRuntime.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
+import { SourceRuntime, type SourceHost } from "../state/source/SourceRuntime.js";
 import { SourceType, type AnySourceType } from "../state/source/SourceType.js";
-import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
+import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
+import { tallyReport, type TallyReporter } from "./TallyReporter.js";
 
 export type PropertyCallback<T = unknown> = (newValue: T, oldValue: T) => void;
 export type SourceCallback<T = unknown> = (source: Source<T>) => void;
@@ -26,18 +27,44 @@ export class SourceManager {
 	private readonly sourceHost = this.createHost();
 
 	private readonly propertyCallbacks = new Map<AnyProperty, CallbackSet<[unknown, unknown]>>();
-	private readonly sourceAddedCallbacks = new CallbackSet<[source: Source]>();
-	private readonly sourceRemovedCallbacks = new CallbackSet<[source: Source]>();
-	private readonly sourceUpdatedCallbacks = new CallbackSet<[source: Source]>();
+	private readonly sourceAddedCallbacks: CallbackSet<[source: Source]>;
+	private readonly sourceRemovedCallbacks: CallbackSet<[source: Source]>;
+	private readonly sourceUpdatedCallbacks: CallbackSet<[source: Source]>;
 
 	private readonly resolvedProperties = new Map<AnyProperty, unknown>();
 	private readonly dirtyProperties = new Set<AnyProperty>();
 	private mutationDepth = 0;
 
 	constructor(
+		private readonly reporter: TallyReporter,
 		private readonly counter: IdCounter,
 		private readonly admission: AdmissionCoordinator
-	) {}
+	) {
+		this.sourceAddedCallbacks = new CallbackSet(
+			reporter,
+			{
+				operation: "admit",
+				event: "source-added",
+			},
+			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+		);
+		this.sourceRemovedCallbacks = new CallbackSet(
+			reporter,
+			{
+				operation: "destroy",
+				event: "source-removed",
+			},
+			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+		);
+		this.sourceUpdatedCallbacks = new CallbackSet(
+			reporter,
+			{
+				operation: "update",
+				event: "source-updated",
+			},
+			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+		);
+	}
 
 	addSource<TData>(
 		type: SourceType<TData>,
@@ -85,14 +112,21 @@ export class SourceManager {
 			return callback();
 		} finally {
 			this.mutationDepth--;
-			if (this.mutationDepth === 0) this.resolveProperties();
+			this.requestResolve();
 		}
 	}
 
 	onPropertyChanged<T>(property: Property<T>, callback: PropertyCallback<T>): Disconnect {
 		let callbacks = this.propertyCallbacks.get(property);
 		if (!callbacks) {
-			callbacks = new CallbackSet<[unknown, unknown]>();
+			callbacks = new CallbackSet<[unknown, unknown]>(this.reporter, {
+				operation: "resolve",
+				event: "property-changed",
+				subject: {
+					kind: "property",
+					name: property.name,
+				},
+			});
 			this.propertyCallbacks.set(property, callbacks);
 		}
 
@@ -119,21 +153,11 @@ export class SourceManager {
 	}
 
 	destroyAllSources() {
-		const errors: unknown[] = [];
-		this.batch(() =>
-			this.sources.forEach((source) => {
-				try {
-					source.destroy();
-				} catch (e) {
-					errors.push(e);
-				}
-			})
-		);
+		this.batch(() => this.sources.forEach((source) => source.destroy()));
 		this.sources.clear();
 		this.modifierRegistry.clear();
 		this.resolvedProperties.clear();
 		this.dirtyProperties.clear();
-		throwCallbackErrors(errors, "Error when destroying sources");
 	}
 
 	private planSource<TData>(
@@ -165,6 +189,7 @@ export class SourceManager {
 
 	private createHost(): SourceHost {
 		return {
+			getReporter: () => this.reporter,
 			contributeModifiers: (type, data) => this.contributeModifiers(type, data),
 			applyModifiers: (contributions, source) =>
 				this.applyModifiers(contributions, source.priority, source.provenance),
@@ -176,8 +201,8 @@ export class SourceManager {
 					source.provenance
 				);
 
-				for (const handle of oldHandles) this.dirtyProperties.add(handle.property);
-				for (const handle of newHandles) this.dirtyProperties.add(handle.property);
+				this.markDirty(oldHandles);
+				this.markDirty(newHandles);
 
 				this.clearModifierHandles(oldHandles);
 
@@ -188,32 +213,26 @@ export class SourceManager {
 			},
 			installSource: (source, handles) => {
 				this.sources.add(source);
-				for (const handle of handles) this.dirtyProperties.add(handle.property);
+				this.markDirty(handles);
 
 				getOrInsertComputed(this.sourceMap, source.type, () => new Set()).add(source);
 			},
 			uninstallSource: (source, handles) => {
-				for (const handle of handles) this.dirtyProperties.add(handle.property);
+				this.markDirty(handles);
 				this.clearModifierHandles(handles);
 				this.sources.delete(source);
 				this.sourceMap.get(source.type)?.delete(source);
 			},
-			announceAdded: (source) =>
-				throwCallbackErrors(
-					this.sourceAddedCallbacks.emit(source),
-					"Errors occurred while announcing Source addition"
-				),
-			announceUpdated: (source) =>
-				throwCallbackErrors(
-					this.sourceUpdatedCallbacks.emit(source),
-					"Errors occurred while announcing Source update"
-				),
-			announceDestroyed: (source) =>
-				throwCallbackErrors(
-					this.sourceRemovedCallbacks.emit(source),
-					"Errors occurred while announcing Source destruction"
-				),
+			announceAdded: (source) => this.sourceAddedCallbacks.emit(source),
+			announceUpdated: (source) => this.sourceUpdatedCallbacks.emit(source),
+			announceDestroyed: (source) => this.sourceRemovedCallbacks.emit(source),
 		};
+	}
+
+	private markDirty(handles: readonly ModifierHandle[]) {
+		for (const { property } of handles) {
+			this.dirtyProperties.add(property);
+		}
 	}
 
 	private requestResolve() {
@@ -221,23 +240,54 @@ export class SourceManager {
 	}
 
 	private resolveProperties() {
-		for (const property of this.dirtyProperties) {
-			const newResolution = property.resolve(
-				property.defaultValue,
-				this.modifierRegistry.get(property)
-			);
+		for (const property of [...this.dirtyProperties]) {
+			this.dirtyProperties.delete(property);
+			// Resolution maintains a derived cache after source state has committed.
+			// Failures are reported and retried after a later mutation.
+			let newResolution: unknown;
+			try {
+				newResolution = property.resolve(
+					property.defaultValue,
+					this.modifierRegistry.get(property)
+				);
+			} catch (error) {
+				this.dirtyProperties.add(property);
+				tallyReport(this.reporter, {
+					code: "property-resolution-failed",
+					operation: "resolve",
+					subject: {
+						kind: "property",
+						name: property.name,
+					},
+					error,
+				});
+				continue;
+			}
+
 			const oldResolution = this.get(property);
+			let changed: boolean;
+			try {
+				changed = !property.valueEquals(oldResolution, newResolution);
+			} catch (error) {
+				this.dirtyProperties.add(property);
+				tallyReport(this.reporter, {
+					code: "property-equality-failed",
+					operation: "resolve",
+					subject: {
+						kind: "property",
+						name: property.name,
+					},
+					error,
+				});
+				continue;
+			}
+
 			this.resolvedProperties.set(property, newResolution);
-			if (!property.valueEquals(oldResolution, newResolution)) {
+			if (changed) {
 				const callbacks = this.propertyCallbacks.get(property);
-				if (callbacks)
-					throwCallbackErrors(
-						callbacks.emit(newResolution, oldResolution),
-						"Errors occurred while announcing property change"
-					);
+				if (callbacks) callbacks.emit(newResolution, oldResolution);
 			}
 		}
-		this.dirtyProperties.clear();
 	}
 
 	private contributeModifiers<TData>(type: SourceType<TData>, data: TData): SourceContribution {

@@ -9,6 +9,7 @@ import {
 	TallyContext,
 	type ReplicationValue,
 } from "../../src/index.js";
+import { testReporter } from "../src/index.js";
 
 type OrderedData = {
 	readonly operation: "add" | "multiply";
@@ -79,7 +80,7 @@ function configureTally(tally: TallyContext<undefined>) {
 }
 
 function createClient() {
-	const tally = new TallyContext<undefined>();
+	const tally = new TallyContext<undefined>(testReporter);
 	configureTally(tally);
 	const agent = tally.createAgentState(undefined);
 	const sourceReceiver = new SourceReceiver(agent, (name) => tally.sources.get(name));
@@ -97,7 +98,7 @@ function populateAuthoritativeState(
 
 describe("replicated deterministic ordering convergence", () => {
 	it("resolves the same order-sensitive value across live Source and Descriptor replication", () => {
-		const serverTally = new TallyContext<undefined>();
+		const serverTally = new TallyContext<undefined>(testReporter);
 		configureTally(serverTally);
 		const serverAgent = serverTally.createAgentState(undefined);
 		const client = createClient();
@@ -115,7 +116,7 @@ describe("replicated deterministic ordering convergence", () => {
 	});
 
 	it("converges from snapshots regardless of Source/Descriptor reconciliation order", () => {
-		const serverTally = new TallyContext<undefined>();
+		const serverTally = new TallyContext<undefined>(testReporter);
 		configureTally(serverTally);
 		const serverAgent = serverTally.createAgentState(undefined);
 		populateAuthoritativeState(serverAgent);

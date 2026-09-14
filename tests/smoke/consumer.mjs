@@ -23,7 +23,8 @@ const damage = defineSourceType({
 	},
 });
 
-const agent = new AgentState({ id: "smoke-test" });
+const reporter = { report() {} };
+const agent = new AgentState({ id: "smoke-test" }, reporter);
 
 assertEqual(agent.get(health), 100, "default property value");
 

@@ -9,11 +9,12 @@ import { DuplicationResolver } from "../state/duplication/DuplicationResolver.js
 import type { Source } from "../state/source/Source.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType } from "../state/source/SourceType.js";
-import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
+import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { IdCounter } from "../util/IdCounter.js";
 import { DescriptorManager, type DescriptorCallback } from "./DescriptorManager.js";
 import { SourceManager, type PropertyCallback, type SourceCallback } from "./SourceManager.js";
+import type { TallyReporter } from "./TallyReporter.js";
 
 export type DestroyCallback = () => void;
 
@@ -24,26 +25,42 @@ export type DestroyCallback = () => void;
  * lifecycle observation for the associated entity.
  */
 export class AgentState<TEntity> {
-	private readonly counter = new IdCounter();
-	private readonly duplicationIndex = new DuplicationIndex();
-	private readonly duplicationResolver = new DuplicationResolver(this.duplicationIndex);
-	private readonly admissionCoordinator = new AdmissionCoordinator(
-		this.duplicationIndex,
-		this.duplicationResolver
-	);
+	private readonly counter: IdCounter;
+	private readonly duplicationIndex: DuplicationIndex;
+	private readonly duplicationResolver: DuplicationResolver;
+	private readonly admissionCoordinator: AdmissionCoordinator;
 
-	private readonly sources = new SourceManager(this.counter, this.admissionCoordinator);
-	private readonly descriptors = new DescriptorManager(
-		this.counter,
-		this.admissionCoordinator,
-		this.sources
-	);
+	private readonly sources: SourceManager;
+	private readonly descriptors: DescriptorManager<TEntity>;
 
-	private readonly destroyCallbacks = new CallbackSet<[]>();
+	private readonly destroyCallbacks: CallbackSet<[]>;
 
 	private destroyed = false;
 
-	constructor(public readonly entity: TEntity) {}
+	constructor(
+		public readonly entity: TEntity,
+		private readonly reporter: TallyReporter
+	) {
+		this.counter = new IdCounter();
+		this.duplicationIndex = new DuplicationIndex();
+		this.duplicationResolver = new DuplicationResolver(this.duplicationIndex);
+		this.admissionCoordinator = new AdmissionCoordinator(
+			this.duplicationIndex,
+			this.duplicationResolver
+		);
+
+		this.sources = new SourceManager(reporter, this.counter, this.admissionCoordinator);
+		this.descriptors = new DescriptorManager(
+			reporter,
+			this.counter,
+			this.admissionCoordinator,
+			this.sources
+		);
+
+		this.destroyCallbacks = new CallbackSet(reporter, {
+			operation: "destroy",
+		});
+	}
 
 	/**
 	 * Adds a Source of the given type to this AgentState.
@@ -114,6 +131,8 @@ export class AgentState<TEntity> {
 	 *
 	 * Warning: Calling this within a {@link batch} call will get the resolved property
 	 * from when the batch call began. This may result in retrieving stale data.
+	 * A property whose resolver or equality hook failed also returns its last successful
+	 * cached value until a later resolution succeeds.
 	 */
 	get<T>(property: Property<T>): T {
 		return this.sources.get(property);
@@ -125,6 +144,8 @@ export class AgentState<TEntity> {
 	 *
 	 * During a {@link batch} call, rather than firing for every intermediate property
 	 * change, property resolution is deferred to the end of the batch call.
+	 * Resolution and equality failures are reported and do not prevent completed Source
+	 * mutations or lifecycle events.
 	 */
 	onPropertyChanged<T>(property: Property<T>, callback: PropertyCallback<T>): Disconnect {
 		if (this.destroyed) return () => {};
@@ -163,7 +184,8 @@ export class AgentState<TEntity> {
 	 * Defers property resolution until the outermost batch completes. Callbacks
 	 * are only fired once when the resolution completes.
 	 *
-	 * Nested batches are supported.
+	 * Nested batches are supported. Property resolution and equality failures are
+	 * reported after the batch rather than thrown from the batch callback.
 	 */
 	batch<T>(callback: () => T): T {
 		return this.sources.batch(callback);
@@ -220,24 +242,14 @@ export class AgentState<TEntity> {
 	destroy() {
 		if (this.destroyed) return;
 		this.destroyed = true;
-		const errors = this.destroyCallbacks.emit();
+		this.destroyCallbacks.emit();
 		this.sources.disconnectAll();
 		this.descriptors.disconnectAll();
 
-		try {
-			this.destroyAllSources();
-		} catch (e) {
-			errors.push(e);
-		}
-
-		try {
-			this.destroyAllDescriptors();
-		} catch (e) {
-			errors.push(e);
-		}
+		this.destroyAllSources();
+		this.destroyAllDescriptors();
 
 		this.destroyCallbacks.clear();
-		throwCallbackErrors(errors, "Errors occurred while destroying AgentState");
 	}
 
 	private assertAlive() {

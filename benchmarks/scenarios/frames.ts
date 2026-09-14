@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { AgentState, defineNumberProperty, defineSourceType } from "../../src/index.js";
 import type { Scenario } from "../shared/scenario.js";
+import { benchmarkReporter } from "../shared/fixtures.js";
 
 export function createFrameScenario(agentCount: number, batched: boolean): Scenario {
 	const attack = defineNumberProperty({ name: "Attack", defaultValue: 100 });
@@ -22,7 +23,7 @@ export function createFrameScenario(agentCount: number, batched: boolean): Scena
 		contribute: (value) => [speed.multiply(value)],
 	});
 	const actors = Array.from({ length: agentCount }, () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, benchmarkReporter);
 		agent.batch(() => {
 			for (let i = 0; i < 8; i++) agent.addSource(equipment, 1);
 		});

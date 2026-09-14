@@ -28,7 +28,7 @@ Tally is available as an npm package.
 This example defines a `MovementSpeed` Property with a default value of 16. While a `Sprinting` source is active, it contributes a multiplier to that Property. Destroying the Source removes its contribution and restores the resolved value to 16.
 
 ```ts
-import { defineNumberProperty, defineSourceType, AgentState } from "tally-effects";
+import { defineNumberProperty, defineSourceType, AgentState, type TallyReporter } from "tally-effects";
 
 const MovementSpeed = defineNumberProperty({
     name: "MovementSpeed",
@@ -41,7 +41,15 @@ const Sprinting = defineSourceType<number>({
     contribute: (multiplier) => [ MovementSpeed.multiply(multiplier) ],
 });
 
-const agent = new AgentState(player);
+const reporter: TallyReporter = {
+    report(report) {
+        // Forward this to the application's diagnostic system.
+        // report.code, report.operation, report.event, and report.error
+        // provide stable machine-readable context.
+    },
+};
+
+const agent = new AgentState(player, reporter);
 
 const sprint = agent.addSource(Sprinting, 1.5);
 
@@ -63,6 +71,27 @@ Property
   ↓ resolves to
 final value
 ```
+
+### Error Reporting
+
+`AgentState` and `TallyContext` require a host-provided `TallyReporter`:
+
+```ts
+import { TallyContext } from "tally-effects";
+
+const tally = new TallyContext(reporter);
+```
+
+Tally invokes callbacks synchronously and remains reentrant, but observation callbacks are
+best-effort. A failed callback is reported after it fails and does not stop later callbacks or
+make an already-completed update, removal, or destruction appear to have failed. Teardown and
+property-resolution failures encountered during lifecycle work are reported the same way so
+cleanup can continue. Tally also contains exceptions thrown by the reporter itself; reporters
+should still avoid throwing so diagnostics are not lost.
+
+`TallyReporter.report()` receives one structured `TallyReport` object. Its stable fields are
+`error`, `code`, and `operation`; reports can also identify a public lifecycle `event` and a
+public `subject`. The reporter owns human-readable formatting, allowing hosts to share the same contract without sharing a logging implementation.
 
 ### Properties
 

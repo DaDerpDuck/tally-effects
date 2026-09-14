@@ -5,9 +5,11 @@ import {
 	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
+	createTestReporter,
 	NumberProperty,
 	type ReplicationEvent,
 	TallyContext,
+	testReporter,
 } from "../src/index.js";
 
 interface PoisonData {
@@ -21,8 +23,8 @@ const PoisonSource = defineSourceType<PoisonData>({
 	duplication: { policy: "ignore" },
 });
 
-function createContextFixture() {
-	const tally = new TallyContext();
+function createContextFixture(reporter = testReporter) {
+	const tally = new TallyContext(reporter);
 	const agent = tally.createAgentState(undefined);
 	return { agent, tally };
 }
@@ -43,19 +45,20 @@ describe("tally context source events", () => {
 		expect(callback).toHaveBeenNthCalledWith(2, agent, second);
 	});
 
-	it("propagates source observer failures after notifying later context observers", () => {
-		const { agent, tally } = createContextFixture();
+	it("reports source observer failures after notifying later context observers", () => {
+		const { reporter, reports } = createTestReporter();
+		const { agent, tally } = createContextFixture(reporter);
 		const laterObserver = vi.fn();
 		tally.onSourceAdded(() => {
 			throw new Error("context source observer failed");
 		});
 		tally.onSourceAdded(laterObserver);
 
-		expect(() => agent.addSource(PoisonSource, { intensity: 5 })).toThrow(
-			"context source observer failed"
-		);
+		expect(() => agent.addSource(PoisonSource, { intensity: 5 })).not.toThrow();
 		expect(laterObserver).toHaveBeenCalledTimes(1);
-		expect(agent.getSources(PoisonSource)).toEqual(new Set());
+		expect(agent.getSources(PoisonSource).size).toBe(1);
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.error).toEqual(new Error("context source observer failed"));
 	});
 
 	it("forwards source removals", () => {
@@ -119,6 +122,33 @@ describe("tally context source events", () => {
 });
 
 describe("tally context descriptor events", () => {
+	it("forwards descriptor additions only to added observers", () => {
+		const Output = defineSourceType<number>({
+			name: "ContextDescriptorAdditionOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ContextDescriptorAddition",
+			source: Output,
+		});
+		const tally = new TallyContext<undefined>(testReporter);
+		tally.registerDescriptorHandler(DescriptorType, (context, value) => {
+			const source = context.addSource(value)!;
+			return { source, update: (next) => source.set(next), destroy: () => source.destroy() };
+		});
+		const agent = tally.createAgentState(undefined);
+		const added = vi.fn();
+		const removed = vi.fn();
+		tally.onDescriptorAdded(added);
+		tally.onDescriptorRemoved(removed);
+
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+
+		expect(added).toHaveBeenCalledExactlyOnceWith(agent, descriptor);
+		expect(removed).not.toHaveBeenCalled();
+	});
+
 	it("stops forwarding descriptor events after destruction", () => {
 		const SourceType = defineSourceType<number>({
 			name: "AfterDestroyDescriptorSource",
@@ -129,7 +159,7 @@ describe("tally context descriptor events", () => {
 			name: "AfterDestroyDescriptor",
 			source: SourceType,
 		});
-		const tally = new TallyContext<undefined>();
+		const tally = new TallyContext<undefined>(testReporter);
 		tally.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -172,7 +202,7 @@ describe("tally context lifecycle", () => {
 			name: "DestroyedContextDescriptor",
 			source: SourceType,
 		});
-		const tally = new TallyContext<undefined>();
+		const tally = new TallyContext<undefined>(testReporter);
 		tally.destroy();
 
 		expect(tally.sources).toEqual(new Map());
@@ -201,7 +231,7 @@ describe("tally context lifecycle", () => {
 
 describe("tally context registry", () => {
 	it("registers properties by name", () => {
-		const tally = new TallyContext();
+		const tally = new TallyContext(testReporter);
 		const booleanProperty = tally.register(
 			defineBooleanProperty({ name: "Boolean", defaultValue: false })
 		);
@@ -219,7 +249,7 @@ describe("tally context registry", () => {
 	});
 
 	it("registers source types by name", () => {
-		const tally = new TallyContext();
+		const tally = new TallyContext(testReporter);
 		const first = tally.register(
 			defineSourceType({
 				name: "Source1",
@@ -245,7 +275,7 @@ describe("tally context registry", () => {
 	});
 
 	it("allows the same property instance to be registered repeatedly", () => {
-		const tally = new TallyContext();
+		const tally = new TallyContext(testReporter);
 		const property = defineBooleanProperty({ name: "Boolean", defaultValue: false });
 
 		tally.register(property);
@@ -255,7 +285,7 @@ describe("tally context registry", () => {
 	});
 
 	it("rejects a different property with the same name", () => {
-		const tally = new TallyContext();
+		const tally = new TallyContext(testReporter);
 		tally.register(defineBooleanProperty({ name: "Boolean", defaultValue: false }));
 
 		expect(() =>
@@ -264,7 +294,7 @@ describe("tally context registry", () => {
 	});
 
 	it("allows the same source type instance to be registered repeatedly", () => {
-		const tally = new TallyContext();
+		const tally = new TallyContext(testReporter);
 		const sourceType = defineSourceType({
 			name: "Source1",
 			priority: 100,
@@ -278,7 +308,7 @@ describe("tally context registry", () => {
 	});
 
 	it("rejects a different source type with the same name", () => {
-		const tally = new TallyContext();
+		const tally = new TallyContext(testReporter);
 		tally.register(
 			defineSourceType({
 				name: "Source1",
@@ -319,7 +349,7 @@ describe("tally context replication emission", () => {
 	}
 
 	function createReplicationFixture() {
-		const tally = new TallyContext<Player>();
+		const tally = new TallyContext<Player>(testReporter);
 		const agentState = tally.createAgentState({ name: "Bob" });
 		const callback = vi.fn<(agent: typeof agentState, event: ReplicationEvent) => void>();
 		tally.onReplicationEmit(callback);
@@ -417,6 +447,36 @@ describe("tally context replication emission", () => {
 			{ target: "source", event: { kind: "updated", id: 0, data: 8 } },
 			{ target: "source", event: { kind: "updated", id: 1, data: 8 } },
 		] satisfies ReplicationEvent[]);
+	});
+
+	it("reports replication serialization failures through the context reporter", () => {
+		const { reporter: contextReporter, reports } = createTestReporter();
+		const { reporter: agentReporter, reports: agentReports } = createTestReporter();
+		const tally = new TallyContext<undefined>(contextReporter);
+		const agent = tally.createAgentState(undefined, agentReporter);
+		const ThrowingReplicationSource = defineSourceType<number>({
+			name: "ThrowingReplicationSerialization",
+			priority: 100,
+			contribute: () => [],
+			replication: {
+				serialize() {
+					throw new Error("serialization failed");
+				},
+				deserialize: (value) => value as number,
+			},
+		});
+
+		expect(() => agent.addSource(ThrowingReplicationSource, 1)).not.toThrow();
+		expect(agent.getSources(ThrowingReplicationSource).size).toBe(1);
+		expect(agentReports).toEqual([]);
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("serialization failed"),
+				code: "replication-serialization-failed",
+				operation: "admit",
+				event: "source-added",
+			}),
+		]);
 	});
 
 	it("does not emit events for source types without replication", () => {

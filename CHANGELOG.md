@@ -2,6 +2,8 @@
 
 ### Added
 
+- Added the exported structured `TallyReport` and `TallyReporter` contracts for host-owned
+  diagnostic reporting.
 - Added keyed duplication for Sources and Descriptors. A string key partitions a type or
   group duplication domain; omitted keys use the unkeyed bucket.
 - Added `DuplicationGroup` and `defineDuplicationGroup` for shared, heterogeneous
@@ -9,10 +11,27 @@
 - Added duplication keys to replicated Source and Descriptor state so receivers preserve
   authoritative key buckets during live-event and snapshot reconstruction.
 
+### Changed
+
+- **[Breaking]** `AgentState` and `TallyContext` now require a `TallyReporter` constructor
+  argument. Supply a host-owned reporter to receive errors from callbacks and best-effort
+  lifecycle cleanup.
+- Public observation callbacks are now best-effort: all listeners run, and their failures are
+  reported instead of being synchronously thrown from lifecycle operations.
+- Property resolver and `valueEquals` failures now retain the last successful cached value and
+  are retried after a later mutation. Tally reports these exceptional failures without undoing
+  the committed Source mutation or interrupting lifecycle cleanup.
+
 ### Fixed
 
 - Fixed Source updates so a property-change observer failure cannot orphan replacement Modifiers
   or prevent later cleanup.
+- Fixed source and descriptor teardown so resolution, binding-cleanup, and observer failures are
+  reported without preventing remaining lifecycle cleanup.
+- Fixed callback subscription mutation semantics: new or reconnected subscriptions wait until the
+  next emission, while disconnecting a pending subscription prevents its invocation.
+- Fixed failed Property resolution to retain the last successful cache and remain dirty for a
+  later retry.
 
 ## [0.2.0] - 2026-08-29
 

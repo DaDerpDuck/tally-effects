@@ -1,6 +1,14 @@
 // Core
 export { AgentState } from "./tally/core/AgentState.js";
 export { TallyContext } from "./tally/core/TallyContext.js";
+export type {
+	TallyReport,
+	TallyReportCode,
+	TallyReportEvent,
+	TallyReportOperation,
+	TallyReportSubject,
+	TallyReporter,
+} from "./tally/core/TallyReporter.js";
 
 // Registry
 export { registerProperty, type Registrable, type Registry } from "./tally/state/Registrable.js";
