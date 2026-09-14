@@ -43,6 +43,21 @@ describe("tally context source events", () => {
 		expect(callback).toHaveBeenNthCalledWith(2, agent, second);
 	});
 
+	it("propagates source observer failures after notifying later context observers", () => {
+		const { agent, tally } = createContextFixture();
+		const laterObserver = vi.fn();
+		tally.onSourceAdded(() => {
+			throw new Error("context source observer failed");
+		});
+		tally.onSourceAdded(laterObserver);
+
+		expect(() => agent.addSource(PoisonSource, { intensity: 5 })).toThrow(
+			"context source observer failed"
+		);
+		expect(laterObserver).toHaveBeenCalledTimes(1);
+		expect(agent.getSources(PoisonSource)).toEqual(new Set());
+	});
+
 	it("forwards source removals", () => {
 		const { agent, tally } = createContextFixture();
 		const callback = vi.fn();

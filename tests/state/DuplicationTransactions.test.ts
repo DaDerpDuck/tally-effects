@@ -557,6 +557,61 @@ describe("duplication admission transactions", () => {
 		expect(agent.addSource(SourceType, 2)).toBeDefined();
 	});
 
+	it("resolves properties after rolling back a Source whose added observer throws", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingAddedSourceRollbackResolutionProperty",
+			defaultValue: 0,
+		});
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingAddedSourceRollbackResolution",
+			priority: 100,
+			duplication: { policy: "ignore" },
+			contribute: (value) => [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+		agent.onSourceAdded(() => {
+			throw new Error("added callback failed");
+		});
+
+		expect(() => agent.addSource(SourceType, 1)).toThrow("added callback failed");
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+	});
+
+	it("resolves properties after rolling back a Descriptor whose added observer throws", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingAddedDescriptorRollbackResolutionProperty",
+			defaultValue: 0,
+		});
+		const OutputType = defineSourceType<number>({
+			name: "ThrowingAddedDescriptorRollbackResolutionOutput",
+			priority: 100,
+			contribute: (value) => [Property.add(value)],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ThrowingAddedDescriptorRollbackResolution",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		agent.onDescriptorAdded(() => {
+			throw new Error("added callback failed");
+		});
+
+		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("added callback failed");
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+	});
+
 	it("rolls back a Source staged before a throwing property flush", () => {
 		const Property = defineNumberProperty({
 			name: "ThrowingAdmissionFlushSourceProperty",
@@ -976,6 +1031,82 @@ describe("duplication admission transactions", () => {
 		shouldThrow = false;
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
+
+	it("makes a Descriptor terminal even when rollback binding cleanup throws", () => {
+		const OutputType = defineSourceType<number>({
+			name: "ThrowingRollbackDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ThrowingRollbackDescriptor",
+			source: OutputType,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		let captured: Descriptor<number, number> | undefined;
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => {
+					throw new Error("binding cleanup failed");
+				},
+			};
+		});
+		agent.onDescriptorAdded((descriptor) => {
+			captured = descriptor as Descriptor<number, number>;
+			throw new Error("added callback failed");
+		});
+
+		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow();
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(() => captured!.set(2)).toThrow("Descriptor has been destroyed");
+	});
+
+	it("finishes Descriptor removal notifications and aggregates binding cleanup failures", () => {
+		const OutputType = defineSourceType<number>({
+			name: "AggregateDescriptorCleanupOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "AggregateDescriptorCleanup",
+			source: OutputType,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			source.onDestroy(() => {
+				throw new Error("derived source cleanup failed");
+			});
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => {
+					throw new Error("binding cleanup failed");
+				},
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+		const removed = vi.fn();
+		agent.onDescriptorRemoved(removed);
+
+		let error: unknown;
+		try {
+			descriptor.destroy();
+		} catch (caught) {
+			error = caught;
+		}
+
+		expect(error).toBeInstanceOf(AggregateError);
+		expect((error as Error).message).toContain("binding cleanup failed");
+		expect((error as Error).message).toContain("derived source cleanup failed");
+		expect(removed).toHaveBeenCalledWith(descriptor);
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+	});
 });
 
 describe("duplication group validation", () => {
@@ -988,5 +1119,13 @@ describe("duplication group validation", () => {
 					selector: "oldest",
 				})
 		).toThrow(/maxStack/);
+	});
+
+	it.each([
+		{ policy: "ignore", maxStack: 1, selector: "oldest" },
+		{ policy: "replace", selector: "oldest" },
+		{ policy: "replace", maxStack: 1, selector: "invalid" },
+	])("rejects an invalid runtime group definition %#", (definition) => {
+		expect(() => new DuplicationGroup(definition as never)).toThrow();
 	});
 });

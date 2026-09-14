@@ -135,25 +135,32 @@ describe("descriptor lifecycle", () => {
 		const descriptorRef: { current: Descriptor<number, number> | undefined } = {
 			current: undefined,
 		};
+		const updates = new Array<string>();
 		agent.registerDescriptorHandler(ReentrantDescriptor, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
 				source,
 				update(value) {
+					updates.push(`start-${value}`);
 					if (value === 2) descriptorRef.current!.set(3);
 					source.set(value);
+					updates.push(`end-${value}`);
 				},
 				destroy: () => source.destroy(),
 			};
 		});
 		const descriptor = agent.addDescriptor(ReentrantDescriptor, 1)!;
 		descriptorRef.current = descriptor;
+		const announced = vi.fn();
+		descriptor.onUpdate(announced);
 
 		descriptor.set(2);
 
+		expect(updates).toEqual(["start-2", "end-2", "start-3", "end-3"]);
 		expect(descriptor.get()).toBe(3);
 		expect(descriptor.getSource().get()).toBe(3);
 		expect(agent.get(Value)).toBe(3);
+		expect(announced).toHaveBeenCalledOnce();
 	});
 
 	it("uses Object.is as the default descriptor data equality", () => {
