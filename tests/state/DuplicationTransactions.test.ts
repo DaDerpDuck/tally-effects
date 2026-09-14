@@ -5,6 +5,7 @@ import {
 	defineNumberProperty,
 	defineSourceType,
 	DuplicationGroup,
+	type ModifierContribution,
 	type Descriptor,
 	type Source,
 } from "../src/index.js";
@@ -554,6 +555,120 @@ describe("duplication admission transactions", () => {
 
 		shouldThrow = false;
 		expect(agent.addSource(SourceType, 2)).toBeDefined();
+	});
+
+	it("rolls back a Source staged before a throwing property flush", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingAdmissionFlushSourceProperty",
+			defaultValue: 0,
+		});
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingAdmissionFlushSource",
+			priority: 100,
+			duplication: { policy: "ignore" },
+			contribute: (value) => [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+		agent.onPropertyChanged(Property, (value) => {
+			if (value === 1) throw new Error("admission flush failed");
+		});
+
+		expect(() => agent.addSource(SourceType, 1)).toThrow("admission flush failed");
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+
+		expect(agent.addSource(SourceType, 2)).toBeDefined();
+		expect(agent.get(Property)).toBe(2);
+	});
+
+	it("rolls back a Descriptor staged before a throwing property flush", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingAdmissionFlushDescriptorProperty",
+			defaultValue: 0,
+		});
+		const OutputType = defineSourceType<number>({
+			name: "ThrowingAdmissionFlushDescriptorOutput",
+			priority: 100,
+			contribute: (value) => [Property.add(value)],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ThrowingAdmissionFlushDescriptor",
+			source: OutputType,
+			duplication: { policy: "ignore" },
+		});
+		const agent = new AgentState(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+		agent.onPropertyChanged(Property, (value) => {
+			if (value === 1) throw new Error("admission flush failed");
+		});
+
+		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("admission flush failed");
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+
+		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
+		expect(agent.get(Property)).toBe(2);
+	});
+
+	it("removes modifiers acquired before a later modifier application fails", () => {
+		const Property = defineNumberProperty({
+			name: "PartialModifierApplicationProperty",
+			defaultValue: 0,
+		});
+		const throwingContribution: ModifierContribution = {
+			applyTo() {
+				throw new Error("second modifier failed");
+			},
+		};
+		const SourceType = defineSourceType<number>({
+			name: "PartialModifierApplicationSource",
+			priority: 100,
+			contribute: (value) =>
+				value === 1 ? [Property.add(1), throwingContribution] : [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+
+		expect(() => agent.addSource(SourceType, 1)).toThrow("second modifier failed");
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
+
+		agent.addSource(SourceType, 2);
+		expect(agent.get(Property)).toBe(2);
+	});
+
+	it("notifies Source removal after property resolution observers throw", () => {
+		const Property = defineNumberProperty({
+			name: "ThrowingRemovalResolutionProperty",
+			defaultValue: 0,
+		});
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingRemovalResolutionSource",
+			priority: 100,
+			contribute: (value) => [Property.add(value)],
+		});
+		const agent = new AgentState(undefined);
+		const source = agent.addSource(SourceType, 1)!;
+		const destroyed = vi.fn();
+		const removed = vi.fn();
+		source.onDestroy(destroyed);
+		agent.onSourceRemoved(removed);
+		agent.onPropertyChanged(Property, (value) => {
+			if (value === 0) throw new Error("removal resolution failed");
+		});
+
+		expect(() => source.destroy()).toThrow("removal resolution failed");
+		expect(destroyed).toHaveBeenCalledWith(source);
+		expect(removed).toHaveBeenCalledWith(source);
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(agent.get(Property)).toBe(0);
 	});
 
 	it("does not retain a Descriptor destroyed during its added notification", () => {

@@ -4,6 +4,7 @@ import {
 	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
+	type Descriptor,
 	DescriptorType,
 	TallyContext,
 } from "../src/index.js";
@@ -118,6 +119,41 @@ describe("descriptor lifecycle", () => {
 		expect(agent.get(Value)).toBe(8);
 		expect(updated).toHaveBeenCalledTimes(1);
 		expect(updated).toHaveBeenCalledWith(descriptor);
+	});
+
+	it("serializes reentrant descriptor binding updates to the newest data", () => {
+		const Output = defineSourceType<number>({
+			name: "SerializedDescriptorUpdateOutput",
+			priority: 100,
+			contribute: (value) => [Value.add(value)],
+		});
+		const ReentrantDescriptor = defineDescriptorType<number, number>({
+			name: "SerializedDescriptorUpdate",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		const descriptorRef: { current: Descriptor<number, number> | undefined } = {
+			current: undefined,
+		};
+		agent.registerDescriptorHandler(ReentrantDescriptor, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update(value) {
+					if (value === 2) descriptorRef.current!.set(3);
+					source.set(value);
+				},
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(ReentrantDescriptor, 1)!;
+		descriptorRef.current = descriptor;
+
+		descriptor.set(2);
+
+		expect(descriptor.get()).toBe(3);
+		expect(descriptor.getSource().get()).toBe(3);
+		expect(agent.get(Value)).toBe(3);
 	});
 
 	it("uses Object.is as the default descriptor data equality", () => {
@@ -236,6 +272,39 @@ describe("descriptor lifecycle", () => {
 		descriptor.destroy();
 
 		expect(agent.getDescriptors(ReentrantDescriptor)).toEqual(new Set());
+		expect(agent.getSources(Output)).toEqual(new Set());
+	});
+
+	it("continues draining derived Sources after one teardown fails and reenters", () => {
+		const Output = defineSourceType<number>({
+			name: "ThrowingReentrantBindingDestroyOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const ThrowingDescriptor = defineDescriptorType<number, number>({
+			name: "ThrowingReentrantBindingDestroyDescriptor",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(ThrowingDescriptor, (ctx, data) => {
+			const first = ctx.addSource(data)!;
+			const second = ctx.addSource(data + 1)!;
+			first.onDestroy(() => {
+				ctx.addSource(data + 2);
+				throw new Error("first derived source destroy failed");
+			});
+			return {
+				source: first,
+				update: (value) => first.set(value),
+				destroy: () => {
+					// DescriptorRuntime owns the derived Sources and must drain them all.
+				},
+			};
+		});
+		const descriptor = agent.addDescriptor(ThrowingDescriptor, 1)!;
+
+		expect(() => descriptor.destroy()).toThrow("first derived source destroy failed");
+		expect(agent.getDescriptors(ThrowingDescriptor)).toEqual(new Set());
 		expect(agent.getSources(Output)).toEqual(new Set());
 	});
 

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	AgentState,
 	defineBooleanProperty,
+	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
 } from "../src/index.js";
@@ -423,6 +424,49 @@ describe("agent state", () => {
 		expect(agent.hasSource(SourceTypeA)).toBe(false);
 		expect(agent.hasSource(SourceTypeB)).toBe(false);
 		expect(agent.get(Property)).toBe(10);
+	});
+
+	it("settles all Sources and Descriptors when AgentState destruction encounters errors", () => {
+		const FirstSourceType = defineSourceType<undefined>({
+			name: "AgentDestroyThrowingFirstSource",
+			priority: 100,
+			contribute: () => [],
+		});
+		const SecondSourceType = defineSourceType<undefined>({
+			name: "AgentDestroySecondSource",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorOutput = defineSourceType<undefined>({
+			name: "AgentDestroyDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<undefined, undefined>({
+			name: "AgentDestroyDescriptor",
+			source: DescriptorOutput,
+		});
+		const agent = new AgentState(undefined);
+		agent.registerDescriptorHandler(DescriptorType, (ctx) => {
+			const source = ctx.addSource(undefined)!;
+			return {
+				source,
+				update: () => {},
+				destroy: () => source.destroy(),
+			};
+		});
+		const first = agent.addSource(FirstSourceType)!;
+		const second = agent.addSource(SecondSourceType)!;
+		const descriptor = agent.addDescriptor(DescriptorType, undefined)!;
+		first.onDestroy(() => {
+			throw new Error("first source destroy failed");
+		});
+
+		expect(() => agent.destroy()).toThrow("first source destroy failed");
+		expect(agent.getSources()).toEqual(new Set());
+		expect(agent.getDescriptors()).toEqual(new Set());
+		expect(() => second.set(undefined)).toThrow("Source has been destroyed");
+		expect(() => descriptor.set(undefined)).toThrow("Descriptor has been destroyed");
 	});
 
 	it("does not notify a disconnected property observer more than once", () => {
