@@ -1,6 +1,6 @@
 node_modules/
 dist/
 coverage/
-benchmark-results.json
+.vscode/
 benchmarks/results/
 benchmarks/.dist/

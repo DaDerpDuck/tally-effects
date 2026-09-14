@@ -1,0 +1,131 @@
+import { describe, expect, it, vi } from "vitest";
+import { AdmissionCoordinator } from "../../src/tally/state/AdmissionCoordinator.js";
+import type { AdmissionPlan } from "../../src/tally/state/AdmissionPlan.js";
+import type { AdmissionRuntime } from "../../src/tally/state/AdmissionRuntime.js";
+import { AdmissionTransaction } from "../../src/tally/state/AdmissionTransaction.js";
+import type {
+	DuplicableType,
+	DuplicationCandidate,
+} from "../../src/tally/state/duplication/DuplicationCandidate.js";
+import { DuplicationGroup } from "../../src/tally/state/duplication/DuplicationGroup.js";
+import { DuplicationIndex } from "../../src/tally/state/duplication/DuplicationIndex.js";
+import { DuplicationResolver } from "../../src/tally/state/duplication/DuplicationResolver.js";
+
+class TestCandidate implements DuplicationCandidate<number> {
+	constructor(
+		readonly type: DuplicableType<TestCandidate, number>,
+		private readonly data: number,
+		private readonly onDestroy: () => void = () => {}
+	) {}
+
+	get() {
+		return this.data;
+	}
+
+	destroy() {
+		this.onDestroy();
+	}
+}
+
+class TestRuntime implements AdmissionRuntime<number> {
+	constructor(readonly instance: TestCandidate) {}
+
+	prepare() {}
+	install() {}
+	announceAdded() {}
+	markLive() {}
+	rollbackAdmission() {}
+}
+
+function createPlan(
+	type: DuplicableType<TestCandidate, number>,
+	data: number,
+	onDestroy?: () => void
+): AdmissionPlan<number, TestCandidate, TestRuntime> {
+	return {
+		type,
+		key: undefined,
+		data,
+		createRuntime: () => new TestRuntime(new TestCandidate(type, data, onDestroy)),
+	};
+}
+
+function reservePending(
+	index: DuplicationIndex,
+	domain: object,
+	plan: AdmissionPlan<number, TestCandidate, TestRuntime>
+) {
+	const transaction = new AdmissionTransaction(plan, index);
+	const entry = index.reserve(domain, undefined, transaction, () => plan.data);
+	transaction.markReserved(entry);
+	return entry;
+}
+
+function reserveLive(
+	index: DuplicationIndex,
+	domain: object,
+	plan: AdmissionPlan<number, TestCandidate, TestRuntime>
+) {
+	const transaction = new AdmissionTransaction(plan, index);
+	const entry = index.reserve(domain, undefined, transaction, () => plan.data);
+	transaction.markReserved(entry);
+	transaction.beginDecision();
+	transaction.beginPreparing();
+	const runtime = transaction.createRuntime()!;
+	transaction.markInstalled();
+	transaction.beginAnnouncing();
+	index.activate(entry, runtime);
+	transaction.complete();
+	return runtime.instance;
+}
+
+describe("admission coordinator recovery", () => {
+	it("plans enough grouped evictions to restore an overfull bucket", () => {
+		const group = new DuplicationGroup({
+			policy: "replace",
+			maxStack: 1,
+			selector: "oldest",
+		});
+		const type: DuplicableType<TestCandidate, number> = {
+			duplication: {
+				policy: "group",
+				group,
+				rank: (value) => value,
+				replaceIf: () => true,
+			},
+		};
+		const index = new DuplicationIndex();
+		const resolver = new DuplicationResolver(index);
+
+		const first = reservePending(index, group, createPlan(type, 1));
+		const second = reservePending(index, group, createPlan(type, 2));
+		const incoming = reservePending(index, group, createPlan(type, 3));
+
+		const decision = resolver.decide(incoming);
+
+		expect(decision).toMatchObject({ action: "add" });
+		if (decision.action === "add") {
+			expect(decision.evict).toHaveLength(2);
+			expect(decision.evict).toEqual(expect.arrayContaining([first, second]));
+		}
+	});
+
+	it("attempts every replacement eviction after an earlier destruction failure", () => {
+		const type: DuplicableType<TestCandidate, number> = {
+			duplication: { policy: "replace" },
+		};
+		const index = new DuplicationIndex();
+		const coordinator = new AdmissionCoordinator(index, new DuplicationResolver(index));
+		const firstDestroy = vi.fn(() => {
+			throw new Error("first eviction failed");
+		});
+		const secondDestroy = vi.fn();
+
+		reserveLive(index, type, createPlan(type, 1, firstDestroy));
+		reserveLive(index, type, createPlan(type, 2, secondDestroy));
+
+		expect(() => coordinator.admit(createPlan(type, 3))).toThrow("first eviction failed");
+		expect(firstDestroy).toHaveBeenCalledOnce();
+		expect(secondDestroy).toHaveBeenCalledOnce();
+	});
+});

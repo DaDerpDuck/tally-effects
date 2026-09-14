@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderComparison, type ComparisonReport } from "./comparison.js";
-import { aggregateReports, type BenchmarkReport } from "./report.js";
+import { aggregateReports, type BenchmarkReport, type BenchmarkTaskReport } from "./report.js";
 
 function report(first: number, second = 200): BenchmarkReport {
 	return {
@@ -11,6 +11,8 @@ function report(first: number, second = 200): BenchmarkReport {
 		profile: "comparison",
 		timestamp: "2026-09-05T00:00:00Z",
 		environment: { runtime: "node", runtimeVersion: "24", cpu: "test" },
+		harnessFingerprint: "sha256:harness",
+		dependencies: { tinybench: "6.1.4" },
 		suites: [
 			{
 				name: "Example",
@@ -21,6 +23,7 @@ function report(first: number, second = 200): BenchmarkReport {
 				timestampProvider: "test",
 				tasks: [first, second].map((value, index) => ({
 					name: `task ${index}`,
+					workloadFingerprint: `sha256:task-${index}`,
 					samples: 20,
 					latencyMedianNs: value,
 					latencyMeanNs: value,
@@ -73,6 +76,15 @@ describe("benchmark aggregation", () => {
 			},
 			(value: BenchmarkReport) => {
 				value.suites[0]!.tasks[0]!.operationsPerSample = 100;
+			},
+			(value: BenchmarkReport) => {
+				value.suites[0]!.tasks[0]!.workloadFingerprint = "sha256:changed";
+			},
+			(value: BenchmarkReport) => {
+				value.harnessFingerprint = "sha256:changed";
+			},
+			(value: BenchmarkReport) => {
+				value.dependencies!.tinybench = "7.0.0";
 			},
 			(value: BenchmarkReport) => {
 				value.suites[0]!.tasks.pop();
@@ -138,6 +150,43 @@ describe("benchmark comparison", () => {
 
 		expect(output).toContain("Runtime or machine metadata differs");
 		expect(output).not.toContain("+10.0%");
+	});
+
+	it("suppresses changed workloads and harnesses", () => {
+		const baseline = report(100);
+		const changedWorkload = report(110);
+		changedWorkload.suites[0]!.tasks[0]!.workloadFingerprint = "sha256:changed";
+
+		expect(renderComparison(baseline, changedWorkload)).toContain(
+			"workload fingerprint differs"
+		);
+		expect(renderComparison(baseline, changedWorkload)).not.toContain("+10.0%");
+
+		const changedHarness = report(110);
+		changedHarness.harnessFingerprint = "sha256:changed";
+		const output = renderComparison(baseline, changedHarness);
+		expect(output).toContain("harness fingerprints differ");
+		expect(output).not.toContain("+10.0%");
+
+		const changedDependency = report(110);
+		changedDependency.dependencies!.tinybench = "7.0.0";
+		expect(renderComparison(baseline, changedDependency)).toContain(
+			"dependency versions differ"
+		);
+		expect(renderComparison(baseline, changedDependency)).not.toContain("+10.0%");
+	});
+
+	it("keeps legacy schema-2 reports comparable while flagging unavailable fingerprints", () => {
+		const baseline = report(100);
+		const candidate = report(110);
+		delete (baseline as Partial<BenchmarkReport>).harnessFingerprint;
+		delete (baseline as Partial<BenchmarkReport>).dependencies;
+		delete (baseline.suites[0]!.tasks[0] as Partial<BenchmarkTaskReport>).workloadFingerprint;
+
+		const output = renderComparison(baseline, candidate);
+		expect(output).toContain("harness fingerprint is unavailable");
+		expect(output).toContain("workload fingerprint unavailable");
+		expect(output).toContain("+10.0%");
 	});
 
 	it("rejects invalid medians instead of generating NaN comparisons", () => {

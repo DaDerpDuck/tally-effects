@@ -37,6 +37,7 @@ function createSnapshot(size: number, value: number): ReplicationSnapshot {
 			id: index + 1,
 			type: "ReplicatedBenchmarkSource",
 			priority: 0,
+			key: undefined,
 			data: value,
 		})),
 		descriptors: [],
@@ -129,6 +130,7 @@ for (const size of [1, 10, 100, 1_000]) {
 		descriptors: Array.from({ length: size }, (_, index) => ({
 			id: index + 1,
 			type: "BenchmarkDescriptor",
+			key: undefined,
 			data: value,
 		})),
 	});

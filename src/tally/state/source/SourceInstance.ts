@@ -1,59 +1,49 @@
 import type { Disconnect } from "../../util/Disconnect.js";
 import type { StateProvenance } from "../Provenance.js";
 import type { Source } from "./Source.js";
+import type { SourceRuntime } from "./SourceRuntime.js";
 import type { SourceType } from "./SourceType.js";
 
+export interface SourceIdentity<TData> {
+	readonly id: number;
+	readonly type: SourceType<TData>;
+	readonly priority: number;
+	readonly key: string | undefined;
+	readonly provenance: StateProvenance;
+	readonly data: TData;
+}
+
 export class SourceInstance<TData> implements Source<TData> {
-	private readonly updateCallbacks = new Set<(self: this) => void>();
-	private readonly destroyCallbacks = new Set<(self: this) => void>();
-	private destroyed = false;
+	readonly id: number;
+	readonly type: SourceType<TData>;
+	readonly priority: number;
+	readonly key: string | undefined;
+	readonly provenance: StateProvenance;
 
 	constructor(
-		public readonly id: number,
-		public readonly type: SourceType<TData>,
-		public readonly priority: number,
-		public readonly provenance: StateProvenance,
-		private data: TData
-	) {}
-
-	set(data: TData) {
-		this.assertAlive();
-		if (this.type.dataEquals(this.data, data)) return;
-		this.data = data;
-		for (const callback of this.updateCallbacks) {
-			callback(this);
-		}
+		identity: SourceIdentity<TData>,
+		private readonly runtime: SourceRuntime<TData>
+	) {
+		this.id = identity.id;
+		this.type = identity.type;
+		this.priority = identity.priority;
+		this.key = identity.key;
+		this.provenance = identity.provenance;
 	}
 
 	get(): TData {
-		return this.data;
+		return this.runtime.get();
 	}
-
-	onUpdate(callback: (self: this) => void): Disconnect {
-		if (this.destroyed) return () => {};
-		this.updateCallbacks.add(callback);
-		return () => {
-			this.updateCallbacks.delete(callback);
-		};
+	set(data: TData): void {
+		this.runtime.set(data);
 	}
-
-	onDestroy(callback: (self: this) => void): Disconnect {
-		if (this.destroyed) return () => {};
-		this.destroyCallbacks.add(callback);
-		return () => {
-			this.destroyCallbacks.delete(callback);
-		};
-	}
-
 	destroy(): void {
-		if (this.destroyed) return;
-		this.destroyed = true;
-		this.destroyCallbacks.forEach((callback) => callback(this));
-		this.updateCallbacks.clear();
-		this.destroyCallbacks.clear();
+		this.runtime.destroy();
 	}
-
-	private assertAlive() {
-		if (this.destroyed) throw new Error("Source has been destroyed");
+	onUpdate(callback: (self: Source<TData>) => void): Disconnect {
+		return this.runtime.onUpdate(callback);
+	}
+	onDestroy(callback: (self: Source<TData>) => void): Disconnect {
+		return this.runtime.onDestroy(callback);
 	}
 }

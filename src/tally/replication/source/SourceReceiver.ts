@@ -92,6 +92,7 @@ export class SourceReceiver implements ReplicationReceiver {
 			sourceType.replication.deserialize(replicatedSource.data),
 			{
 				priority: replicatedSource.priority,
+				key: replicatedSource.key,
 				provenance: {
 					domain: "replicated",
 					sequence: replicatedSource.id,

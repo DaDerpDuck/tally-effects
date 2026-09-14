@@ -1,13 +1,17 @@
 import { ModifierRegistry, type ModifierHandle } from "../modifier/ModifierRegistry.js";
 import { OrderingDomain } from "../modifier/OrderingDomain.js";
 import type { AnyProperty, Property } from "../property/Property.js";
+import type { AdmissionCoordinator, AdmissionReceipt } from "../state/AdmissionCoordinator.js";
+import type { AdmissionPlan } from "../state/AdmissionPlan.js";
 import type { StateProvenance } from "../state/Provenance.js";
 import type { Source } from "../state/source/Source.js";
-import { SourceInstance } from "../state/source/SourceInstance.js";
+import type { SourceContribution } from "../state/source/SourceContribution.js";
+import { SourceRuntime, type SourceHost } from "../state/source/SourceRuntime.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType, type AnySourceType } from "../state/source/SourceType.js";
+import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
-import { getOrInsert } from "../util/GetOrInsert.js";
+import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
 
 export type PropertyCallback<T = unknown> = (newValue: T, oldValue: T) => void;
@@ -17,50 +21,45 @@ export class SourceManager {
 	private static readonly EmptySet: ReadonlySet<unknown> = new Set();
 
 	private readonly modifierRegistry = new ModifierRegistry();
-	private readonly sourceModifiersMap = new Map<Source, ModifierHandle[]>();
+	private readonly sources = new Set<Source>();
 	private readonly sourceMap = new Map<AnySourceType, Set<Source>>();
+	private readonly sourceHost = this.createHost();
 
-	private readonly propertyCallbacks = new Map<AnyProperty, Set<PropertyCallback>>();
-	private readonly sourceAddedCallbacks = new Set<SourceCallback>();
-	private readonly sourceRemovedCallbacks = new Set<SourceCallback>();
-	private readonly sourceUpdatedCallbacks = new Set<SourceCallback>();
+	private readonly propertyCallbacks = new Map<AnyProperty, CallbackSet<[unknown, unknown]>>();
+	private readonly sourceAddedCallbacks = new CallbackSet<[source: Source]>();
+	private readonly sourceRemovedCallbacks = new CallbackSet<[source: Source]>();
+	private readonly sourceUpdatedCallbacks = new CallbackSet<[source: Source]>();
 
 	private readonly resolvedProperties = new Map<AnyProperty, unknown>();
 	private readonly dirtyProperties = new Set<AnyProperty>();
-
 	private mutationDepth = 0;
 
-	constructor(private readonly counter: IdCounter) {}
+	constructor(
+		private readonly counter: IdCounter,
+		private readonly admission: AdmissionCoordinator
+	) {}
 
 	addSource<TData>(
 		type: SourceType<TData>,
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
-		switch (type.duplication.policy) {
-			case "allow":
-				return this.createSource(type, data, options);
-			case "ignore": {
-				const existingSource = this.sourceMap.get(type)?.values().next().value;
-				if (existingSource) return undefined;
-				return this.createSource(type, data, options);
+		let receipt: AdmissionReceipt<Source<TData>> | undefined;
+		try {
+			this.batch(
+				() => (receipt = this.admission.admit(this.planSource(type, data, options)))
+			);
+		} catch (e) {
+			const errors = [e];
+			try {
+				if (receipt) this.batch(() => receipt!.rollback());
+			} catch (e2) {
+				errors.push(e2);
 			}
-			case "replace": {
-				return this.batch(() => {
-					const existingSource = this.sourceMap.get(type)?.values().next().value;
-					existingSource?.destroy();
-					return this.createSource(type, data, options);
-				});
-			}
-			case "reconcile": {
-				const existingSource = this.sourceMap.get(type)?.values().next().value;
-				if (!existingSource) return this.createSource(type, data, options);
-				if (existingSource.type.duplication.policy !== "reconcile")
-					throw new Error("Duplicate policy was changed");
-				existingSource.type.duplication.reconcile(existingSource, data);
-				return undefined;
-			}
+			if (errors.length === 1) throw errors[0];
+			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
 		}
+		return this.batch(() => receipt?.publish());
 	}
 
 	get<T>(property: Property<T>): T {
@@ -75,7 +74,7 @@ export class SourceManager {
 	}
 
 	getSources(type?: SourceType<unknown>): ReadonlySet<Source> {
-		if (type === undefined) return new Set(this.sourceModifiersMap.keys());
+		if (type === undefined) return this.sources;
 		return (this.sourceMap.get(type) ?? SourceManager.EmptySet) as ReadonlySet<Source>;
 	}
 
@@ -92,30 +91,24 @@ export class SourceManager {
 
 	onPropertyChanged<T>(property: Property<T>, callback: PropertyCallback<T>): Disconnect {
 		let callbacks = this.propertyCallbacks.get(property);
-		if (callbacks) {
-			callbacks.add(callback as PropertyCallback<unknown>);
-		} else {
-			callbacks = new Set();
+		if (!callbacks) {
+			callbacks = new CallbackSet<[unknown, unknown]>();
 			this.propertyCallbacks.set(property, callbacks);
-			callbacks.add(callback as PropertyCallback<unknown>);
 		}
 
-		return () => callbacks.delete(callback as PropertyCallback<unknown>);
+		return callbacks.add(callback as PropertyCallback<unknown>);
 	}
 
 	onSourceAdded(callback: SourceCallback): Disconnect {
-		this.sourceAddedCallbacks.add(callback);
-		return () => this.sourceAddedCallbacks.delete(callback);
+		return this.sourceAddedCallbacks.add(callback);
 	}
 
 	onSourceRemoved(callback: SourceCallback): Disconnect {
-		this.sourceRemovedCallbacks.add(callback);
-		return () => this.sourceRemovedCallbacks.delete(callback);
+		return this.sourceRemovedCallbacks.add(callback);
 	}
 
 	onSourceUpdated(callback: SourceCallback): Disconnect {
-		this.sourceUpdatedCallbacks.add(callback);
-		return () => this.sourceUpdatedCallbacks.delete(callback);
+		return this.sourceUpdatedCallbacks.add(callback);
 	}
 
 	disconnectAll() {
@@ -126,55 +119,101 @@ export class SourceManager {
 	}
 
 	destroyAllSources() {
-		this.batch(() => this.sourceModifiersMap.forEach((_, source) => source.destroy()));
-		this.sourceModifiersMap.clear();
+		const errors: unknown[] = [];
+		this.batch(() =>
+			this.sources.forEach((source) => {
+				try {
+					source.destroy();
+				} catch (e) {
+					errors.push(e);
+				}
+			})
+		);
+		this.sources.clear();
 		this.modifierRegistry.clear();
 		this.resolvedProperties.clear();
 		this.dirtyProperties.clear();
+		throwCallbackErrors(errors, "Error when destroying sources");
 	}
 
-	private createSource<TData>(
+	private planSource<TData>(
 		type: SourceType<TData>,
 		data: TData,
 		options?: SourceOption
-	): SourceInstance<TData> {
-		const priority = options?.priority ?? type.priority;
-		const sourceId = this.counter.next();
-		const provenance = options?.provenance ?? {
-			domain: "local",
-			sequence: sourceId,
+	): AdmissionPlan<TData, Source<TData>, SourceRuntime<TData>> {
+		return {
+			type,
+			key: options?.key,
+			data,
+			createRuntime: (lease) => {
+				const id = this.counter.next();
+				const priority = options?.priority ?? type.priority;
+				const key = options?.key;
+				const provenance = options?.provenance ?? {
+					domain: "local",
+					sequence: id,
+				};
+
+				return new SourceRuntime(
+					lease,
+					{ id, type, priority, key, provenance, data },
+					this.sourceHost
+				);
+			},
 		};
-		let handles = this.applyModifiers(type, priority, provenance, data);
+	}
 
-		const source = new SourceInstance(sourceId, type, priority, provenance, data);
-		this.sourceModifiersMap.set(source, handles);
-		for (const handle of handles) this.dirtyProperties.add(handle.property);
-		this.requestResolve();
+	private createHost(): SourceHost {
+		return {
+			contributeModifiers: (type, data) => this.contributeModifiers(type, data),
+			applyModifiers: (contributions, source) =>
+				this.applyModifiers(contributions, source.priority, source.provenance),
+			discardModifiers: (handles) => this.clearModifierHandles(handles),
+			changeModifiers: (source, oldHandles, newContributions) => {
+				const newHandles = this.applyModifiers(
+					newContributions,
+					source.priority,
+					source.provenance
+				);
 
-		getOrInsert(this.sourceMap, type, new Set()).add(source);
+				for (const handle of oldHandles) this.dirtyProperties.add(handle.property);
+				for (const handle of newHandles) this.dirtyProperties.add(handle.property);
 
-		source.onUpdate(() => {
-			for (const handle of handles) this.dirtyProperties.add(handle.property);
-			this.clearModifierHandles(handles);
-			handles = this.applyModifiers(type, priority, source.provenance, source.get());
-			this.sourceModifiersMap.set(source, handles);
-			for (const handle of handles) this.dirtyProperties.add(handle.property);
-			this.requestResolve();
-			this.sourceUpdatedCallbacks.forEach((callback) => callback(source));
-		});
+				this.clearModifierHandles(oldHandles);
 
-		source.onDestroy(() => {
-			for (const handle of handles) this.dirtyProperties.add(handle.property);
-			this.clearModifierHandles(handles);
-			this.sourceModifiersMap.delete(source);
-			this.sourceMap.get(source.type)?.delete(source);
-			this.requestResolve();
-			this.sourceRemovedCallbacks.forEach((callback) => callback(source));
-		});
+				return newHandles;
+			},
+			resolveModifiers: () => {
+				this.requestResolve();
+			},
+			installSource: (source, handles) => {
+				this.sources.add(source);
+				for (const handle of handles) this.dirtyProperties.add(handle.property);
 
-		this.sourceAddedCallbacks.forEach((callback) => callback(source));
-
-		return source;
+				getOrInsertComputed(this.sourceMap, source.type, () => new Set()).add(source);
+			},
+			uninstallSource: (source, handles) => {
+				for (const handle of handles) this.dirtyProperties.add(handle.property);
+				this.clearModifierHandles(handles);
+				this.sources.delete(source);
+				this.sourceMap.get(source.type)?.delete(source);
+			},
+			announceAdded: (source) =>
+				throwCallbackErrors(
+					this.sourceAddedCallbacks.emit(source),
+					"Errors occurred while announcing Source addition"
+				),
+			announceUpdated: (source) =>
+				throwCallbackErrors(
+					this.sourceUpdatedCallbacks.emit(source),
+					"Errors occurred while announcing Source update"
+				),
+			announceDestroyed: (source) =>
+				throwCallbackErrors(
+					this.sourceRemovedCallbacks.emit(source),
+					"Errors occurred while announcing Source destruction"
+				),
+		};
 	}
 
 	private requestResolve() {
@@ -191,29 +230,45 @@ export class SourceManager {
 			this.resolvedProperties.set(property, newResolution);
 			if (!property.valueEquals(oldResolution, newResolution)) {
 				const callbacks = this.propertyCallbacks.get(property);
-				callbacks?.forEach((callback) => callback(newResolution, oldResolution));
+				if (callbacks)
+					throwCallbackErrors(
+						callbacks.emit(newResolution, oldResolution),
+						"Errors occurred while announcing property change"
+					);
 			}
 		}
 		this.dirtyProperties.clear();
 	}
 
-	private applyModifiers<TData>(
-		type: SourceType<TData>,
+	private contributeModifiers<TData>(type: SourceType<TData>, data: TData): SourceContribution {
+		return type.contribute(data);
+	}
+
+	private applyModifiers(
+		contribution: SourceContribution,
 		priority: number,
-		provenance: StateProvenance,
-		data: TData
+		provenance: StateProvenance
 	): ModifierHandle[] {
-		return type.contribute(data).map((modifier, index) =>
-			modifier.applyTo(this.modifierRegistry, {
-				priority,
-				domain:
-					provenance.domain === "local" || provenance.domain === "descriptor-local"
-						? OrderingDomain.local
-						: OrderingDomain.authoritative,
-				sequence: provenance.sequence,
-				modifierIndex: index,
-			})
-		);
+		const handles = new Array<ModifierHandle>(contribution.length);
+
+		try {
+			for (let i = 0; i < contribution.length; i++) {
+				handles[i] = contribution[i]!.applyTo(this.modifierRegistry, {
+					priority,
+					domain:
+						provenance.domain === "local" || provenance.domain === "descriptor-local"
+							? OrderingDomain.local
+							: OrderingDomain.authoritative,
+					sequence: provenance.sequence,
+					modifierIndex: i,
+				});
+			}
+
+			return handles;
+		} catch (e) {
+			this.clearModifierHandles(handles.filter((x) => x !== undefined));
+			throw e;
+		}
 	}
 
 	private clearModifierHandles(handles: ModifierHandle[]) {

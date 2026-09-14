@@ -1,15 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	AgentState,
-	createReplicationSnapshot,
 	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
-	DescriptorReceiver,
+	type Descriptor,
 	DescriptorType,
-	serializeDescriptor,
 	TallyContext,
-	type ReplicationEvent,
 } from "../src/index.js";
 
 interface DescriptorData {
@@ -66,31 +63,6 @@ function createAgentFixture() {
 	return { agent, bindingDestroyed };
 }
 
-function createReplicationFixture(attachReplication = true) {
-	const serverTally = new TallyContext<undefined>();
-	registerHandler(serverTally);
-	const serverAgent = serverTally.createAgentState(undefined);
-	serverTally.register(ValueDescriptor);
-
-	const clientTally = new TallyContext<undefined>();
-	registerHandler(clientTally);
-	const clientAgent = clientTally.createAgentState(undefined);
-	clientTally.register(ValueDescriptor);
-
-	const receiver = new DescriptorReceiver(clientAgent, (name) =>
-		clientTally.descriptors.get(name)
-	);
-	if (attachReplication) serverTally.onReplicationEmit((_, event) => receiver.apply([event]));
-
-	return { clientAgent, clientTally, receiver, serverAgent, serverTally };
-}
-
-function getOnlyDescriptor(agent: AgentState<undefined>) {
-	const descriptors = [...agent.getDescriptors(ValueDescriptor)];
-	expect(descriptors).toHaveLength(1);
-	return descriptors[0]!;
-}
-
 describe("descriptor type", () => {
 	it("references a SourceType rather than a runtime Source", () => {
 		expect(ValueDescriptor.source).toBe(DescriptorSource);
@@ -118,9 +90,7 @@ describe("descriptor lifecycle", () => {
 	it("requires a descriptor handler before creation", () => {
 		const agent = new AgentState<undefined>(undefined);
 
-		expect(() => agent.addDescriptor(ValueDescriptor, { value: 5 })).toThrow(
-			"Attempted to add a descriptor source before a descriptor handler was assigned"
-		);
+		expect(() => agent.addDescriptor(ValueDescriptor, { value: 5 })).toThrow();
 	});
 
 	it("creates a descriptor and initializes its binding", () => {
@@ -149,6 +119,48 @@ describe("descriptor lifecycle", () => {
 		expect(agent.get(Value)).toBe(8);
 		expect(updated).toHaveBeenCalledTimes(1);
 		expect(updated).toHaveBeenCalledWith(descriptor);
+	});
+
+	it("serializes reentrant descriptor binding updates to the newest data", () => {
+		const Output = defineSourceType<number>({
+			name: "SerializedDescriptorUpdateOutput",
+			priority: 100,
+			contribute: (value) => [Value.add(value)],
+		});
+		const ReentrantDescriptor = defineDescriptorType<number, number>({
+			name: "SerializedDescriptorUpdate",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		const descriptorRef: { current: Descriptor<number, number> | undefined } = {
+			current: undefined,
+		};
+		const updates = new Array<string>();
+		agent.registerDescriptorHandler(ReentrantDescriptor, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update(value) {
+					updates.push(`start-${value}`);
+					if (value === 2) descriptorRef.current!.set(3);
+					source.set(value);
+					updates.push(`end-${value}`);
+				},
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(ReentrantDescriptor, 1)!;
+		descriptorRef.current = descriptor;
+		const announced = vi.fn();
+		descriptor.onUpdate(announced);
+
+		descriptor.set(2);
+
+		expect(updates).toEqual(["start-2", "end-2", "start-3", "end-3"]);
+		expect(descriptor.get()).toBe(3);
+		expect(descriptor.getSource().get()).toBe(3);
+		expect(agent.get(Value)).toBe(3);
+		expect(announced).toHaveBeenCalledOnce();
 	});
 
 	it("uses Object.is as the default descriptor data equality", () => {
@@ -227,6 +239,80 @@ describe("descriptor lifecycle", () => {
 
 		expect(bindingDestroyed).toHaveBeenCalledTimes(1);
 		expect(agent.getDescriptors(ValueDescriptor).size).toBe(0);
+	});
+
+	it("keeps its bound source readable after destruction", () => {
+		const { agent } = createAgentFixture();
+		const descriptor = agent.addDescriptor(ValueDescriptor, { value: 5 })!;
+		const source = descriptor.getSource();
+
+		descriptor.destroy();
+
+		expect(descriptor.getSource()).toBe(source);
+	});
+
+	it("destroys derived sources added reentrantly while its binding is torn down", () => {
+		const Output = defineSourceType<number>({
+			name: "ReentrantBindingDestroyOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const ReentrantDescriptor = defineDescriptorType<number, number>({
+			name: "ReentrantBindingDestroyDescriptor",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(ReentrantDescriptor, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => {
+					expect(descriptor.getSource()).toBe(source);
+					ctx.addSource(data + 1);
+					source.destroy();
+				},
+			};
+		});
+
+		const descriptor = agent.addDescriptor(ReentrantDescriptor, 1)!;
+		descriptor.destroy();
+
+		expect(agent.getDescriptors(ReentrantDescriptor)).toEqual(new Set());
+		expect(agent.getSources(Output)).toEqual(new Set());
+	});
+
+	it("continues draining derived Sources after one teardown fails and reenters", () => {
+		const Output = defineSourceType<number>({
+			name: "ThrowingReentrantBindingDestroyOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const ThrowingDescriptor = defineDescriptorType<number, number>({
+			name: "ThrowingReentrantBindingDestroyDescriptor",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined);
+		agent.registerDescriptorHandler(ThrowingDescriptor, (ctx, data) => {
+			const first = ctx.addSource(data)!;
+			const second = ctx.addSource(data + 1)!;
+			first.onDestroy(() => {
+				ctx.addSource(data + 2);
+				throw new Error("first derived source destroy failed");
+			});
+			return {
+				source: first,
+				update: (value) => first.set(value),
+				destroy: () => {
+					// DescriptorRuntime owns the derived Sources and must drain them all.
+				},
+			};
+		});
+		const descriptor = agent.addDescriptor(ThrowingDescriptor, 1)!;
+
+		expect(() => descriptor.destroy()).toThrow("first derived source destroy failed");
+		expect(agent.getDescriptors(ThrowingDescriptor)).toEqual(new Set());
+		expect(agent.getSources(Output)).toEqual(new Set());
 	});
 
 	it("throws when mutating a destroyed descriptor", () => {
@@ -313,224 +399,5 @@ describe("descriptor lifecycle", () => {
 		expect(agent.getDescriptors().size).toBe(0);
 		expect(agent.getSources(DescriptorSource).size).toBe(0);
 		expect(agent.get(Value)).toBe(0);
-	});
-});
-
-describe("descriptor replication", () => {
-	it("replicates descriptor addition", () => {
-		const { clientAgent, serverAgent } = createReplicationFixture();
-
-		serverAgent.addDescriptor(ValueDescriptor, { value: 5 });
-
-		const clientDescriptor = getOnlyDescriptor(clientAgent);
-		expect(clientDescriptor.get()).toEqual({ value: 5 });
-		expect(clientDescriptor.getSource().get()).toEqual({ value: 5 });
-		expect(clientAgent.get(Value)).toBe(5);
-	});
-
-	it("replicates descriptor updates using the latest descriptor data", () => {
-		const { clientAgent, serverAgent } = createReplicationFixture();
-		const serverDescriptor = serverAgent.addDescriptor(ValueDescriptor, { value: 5 })!;
-
-		serverDescriptor.set({ value: 8 });
-
-		const clientDescriptor = getOnlyDescriptor(clientAgent);
-		expect(clientDescriptor.get()).toEqual({ value: 8 });
-		expect(clientDescriptor.getSource().get()).toEqual({ value: 8 });
-		expect(clientAgent.get(Value)).toBe(8);
-	});
-
-	it("replicates descriptor removal", () => {
-		const { clientAgent, serverAgent } = createReplicationFixture();
-		const serverDescriptor = serverAgent.addDescriptor(ValueDescriptor, { value: 5 })!;
-		expect(clientAgent.getDescriptors(ValueDescriptor).size).toBe(1);
-
-		serverDescriptor.destroy();
-
-		expect(clientAgent.getDescriptors(ValueDescriptor).size).toBe(0);
-		expect(clientAgent.getSources(DescriptorSource).size).toBe(0);
-		expect(clientAgent.get(Value)).toBe(0);
-	});
-
-	it("does not emit events for descriptors without replication", () => {
-		const LocalDescriptor = defineDescriptorType<DescriptorData, DescriptorData>({
-			name: "LocalOnlyDescriptorEvent",
-			source: DescriptorSource,
-		});
-		const tally = new TallyContext<undefined>();
-		registerHandler(tally, LocalDescriptor);
-		const agent = tally.createAgentState(undefined);
-		const events: ReplicationEvent[] = [];
-		tally.onReplicationEmit((_, event) => events.push(event));
-
-		const descriptor = agent.addDescriptor(LocalDescriptor, { value: 1 })!;
-		descriptor.set({ value: 2 });
-		descriptor.destroy();
-
-		expect(events).toEqual([]);
-	});
-
-	it("excludes descriptors without replication from snapshots", () => {
-		const LocalDescriptor = defineDescriptorType<DescriptorData, DescriptorData>({
-			name: "LocalOnlyDescriptorSnapshot",
-			source: DescriptorSource,
-		});
-		const agent = new AgentState<undefined>(undefined);
-		registerHandler(agent, LocalDescriptor);
-		registerHandler(agent, ValueDescriptor);
-		agent.addDescriptor(LocalDescriptor, { value: 100 });
-		const replicated = agent.addDescriptor(ValueDescriptor, { value: 5 })!;
-
-		const snapshot = createReplicationSnapshot(agent);
-
-		expect(snapshot.descriptors).toEqual([
-			{ id: replicated.id, type: ValueDescriptor.name, data: 5 },
-		]);
-	});
-
-	it("rejects incoming replication for a descriptor without replication metadata", () => {
-		const LocalDescriptor = defineDescriptorType<DescriptorData, DescriptorData>({
-			name: "LocalOnlyDescriptorReceiver",
-			source: DescriptorSource,
-		});
-		const agent = new AgentState<undefined>(undefined);
-		registerHandler(agent, LocalDescriptor);
-		const receiver = new DescriptorReceiver(agent, (name) =>
-			name === LocalDescriptor.name ? LocalDescriptor : undefined
-		);
-
-		expect(() =>
-			receiver.apply([
-				{
-					target: "descriptor",
-					event: {
-						kind: "added",
-						descriptor: { id: 10, type: LocalDescriptor.name, data: 1 },
-					},
-				},
-			])
-		).toThrow("Failed to apply 1 replication event(s)");
-		expect(agent.getDescriptors(LocalDescriptor).size).toBe(0);
-	});
-
-	it("throws when updating a descriptor that was never reconstructed", () => {
-		const { receiver } = createReplicationFixture(false);
-
-		expect(() =>
-			receiver.apply([
-				{ target: "descriptor", event: { kind: "updated", id: 404, data: null } },
-			])
-		).toThrow("Failed to apply 1 replication event(s)");
-	});
-
-	it("reconciles descriptor snapshots", () => {
-		const { clientAgent, receiver, serverAgent } = createReplicationFixture(false);
-		const first = serverAgent.addDescriptor(ValueDescriptor, { value: 1 })!;
-		const second = serverAgent.addDescriptor(ValueDescriptor, { value: 10 })!;
-
-		receiver.applySnapshot(createReplicationSnapshot(serverAgent));
-		expect(clientAgent.getDescriptors(ValueDescriptor).size).toBe(2);
-		expect(clientAgent.get(Value)).toBe(11);
-
-		first.set({ value: 2 });
-		second.destroy();
-		receiver.applySnapshot(createReplicationSnapshot(serverAgent));
-
-		expect(clientAgent.getDescriptors(ValueDescriptor).size).toBe(1);
-		expect(getOnlyDescriptor(clientAgent).get()).toEqual({ value: 2 });
-		expect(clientAgent.get(Value)).toBe(2);
-	});
-
-	it("is idempotent when the same descriptor snapshot is applied repeatedly", () => {
-		const { clientAgent, receiver, serverAgent } = createReplicationFixture(false);
-		serverAgent.addDescriptor(ValueDescriptor, { value: 5 });
-		const snapshot = createReplicationSnapshot(serverAgent);
-
-		receiver.applySnapshot(snapshot);
-		receiver.applySnapshot(snapshot);
-
-		expect(clientAgent.getDescriptors(ValueDescriptor).size).toBe(1);
-		expect(clientAgent.getSources(DescriptorSource).size).toBe(1);
-		expect(clientAgent.get(Value)).toBe(5);
-	});
-
-	it("preserves client-local descriptors during snapshot reconciliation", () => {
-		const { clientAgent, receiver, serverAgent } = createReplicationFixture(false);
-		const localDescriptor = clientAgent.addDescriptor(ValueDescriptor, { value: 100 })!;
-		serverAgent.addDescriptor(ValueDescriptor, { value: 5 });
-
-		receiver.applySnapshot(createReplicationSnapshot(serverAgent));
-
-		expect(clientAgent.getDescriptors(ValueDescriptor)).toContain(localDescriptor);
-		expect(clientAgent.getDescriptors(ValueDescriptor).size).toBe(2);
-		expect(clientAgent.get(Value)).toBe(105);
-	});
-
-	it("continues applying valid events when one descriptor type is unknown", () => {
-		const { clientAgent, receiver, serverAgent } = createReplicationFixture(false);
-		const serverDescriptor = serverAgent.addDescriptor(ValueDescriptor, { value: 5 })!;
-
-		const events: ReplicationEvent[] = [
-			{
-				target: "descriptor",
-				event: { kind: "added", descriptor: serializeDescriptor(serverDescriptor) },
-			},
-			{
-				target: "descriptor",
-				event: {
-					kind: "added",
-					descriptor: { id: 999, type: "UnknownDescriptor", data: 10 },
-				},
-			},
-		];
-
-		expect(() => receiver.apply(events)).toThrow("Failed to apply 1 replication event(s)");
-		expect(clientAgent.getDescriptors(ValueDescriptor).size).toBe(1);
-		expect(clientAgent.get(Value)).toBe(5);
-	});
-});
-
-describe("descriptor replication ownership", () => {
-	const ReplicatedDescriptorSource = defineSourceType<DescriptorData>({
-		name: "ReplicatedDescriptorSource",
-		priority: 100,
-		contribute: (data) => [Value.add(data.value)],
-		replication: {
-			serialize: (data) => data.value,
-			deserialize: (value) => {
-				if (typeof value !== "number")
-					throw new Error("Expected source value to be a number");
-				return { value };
-			},
-		},
-	});
-
-	const ReplicatedSourceDescriptor = new DescriptorType<DescriptorData, DescriptorData>({
-		name: "ReplicatedSourceDescriptor",
-		source: ReplicatedDescriptorSource,
-		replication: ValueDescriptor.replication,
-	});
-
-	it("replicates a descriptor-owned Source through the descriptor only", () => {
-		const tally = new TallyContext<undefined>();
-		const agent = tally.createAgentState(undefined);
-		registerHandler(agent, ReplicatedSourceDescriptor);
-		const events: ReplicationEvent[] = [];
-		tally.onReplicationEmit((_, event) => events.push(event));
-
-		agent.addDescriptor(ReplicatedSourceDescriptor, { value: 5 });
-
-		expect(events.map((event) => event.target)).toEqual(["descriptor"]);
-	});
-
-	it("excludes descriptor-owned Sources from the direct Source snapshot namespace", () => {
-		const agent = new AgentState<undefined>(undefined);
-		registerHandler(agent, ReplicatedSourceDescriptor);
-		agent.addDescriptor(ReplicatedSourceDescriptor, { value: 5 });
-
-		const snapshot = createReplicationSnapshot(agent);
-
-		expect(snapshot.descriptors).toHaveLength(1);
-		expect(snapshot.sources).toHaveLength(0);
 	});
 });

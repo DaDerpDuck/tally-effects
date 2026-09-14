@@ -3,6 +3,7 @@ import type { SuiteSettings } from "./report.js";
 // Optional fields keep schema-1 reports and single runs readable.
 interface ComparisonTask {
 	name: string;
+	workloadFingerprint?: string;
 	medianOfMedianNs?: number;
 	latencyMedianNs?: number;
 	relativeMadPercent?: number | null;
@@ -20,6 +21,8 @@ export interface ComparisonReport {
 	profile?: string;
 	runs?: number;
 	environment?: Record<string, unknown>;
+	harnessFingerprint?: string;
+	dependencies?: Record<string, string>;
 	suites: Array<Partial<SuiteSettings> & { name: string; tasks: ComparisonTask[] }>;
 }
 
@@ -82,10 +85,28 @@ export function renderComparison(baseline: ComparisonReport, candidate: Comparis
 		baseline.profile !== undefined &&
 		candidate.profile !== undefined &&
 		baseline.profile !== candidate.profile;
+	const harnessDiffers =
+		baseline.harnessFingerprint !== undefined &&
+		candidate.harnessFingerprint !== undefined &&
+		baseline.harnessFingerprint !== candidate.harnessFingerprint;
+	const dependenciesDiffer =
+		baseline.dependencies !== undefined &&
+		candidate.dependencies !== undefined &&
+		JSON.stringify(baseline.dependencies) !== JSON.stringify(candidate.dependencies);
 	if (environmentDiffers)
 		notes.push("Runtime or machine metadata differs; percentage comparisons are suppressed.");
 	if (profileDiffers)
 		notes.push("Benchmark profiles differ; percentage comparisons are suppressed.");
+	if (harnessDiffers)
+		notes.push("Benchmark harness fingerprints differ; percentage comparisons are suppressed.");
+	if (baseline.harnessFingerprint === undefined || candidate.harnessFingerprint === undefined)
+		notes.push(
+			"A benchmark harness fingerprint is unavailable; compatible tasks are compared using the available metadata."
+		);
+	if (baseline.dependencies === undefined || candidate.dependencies === undefined)
+		notes.push("Benchmark dependency versions are unavailable for at least one report.");
+	else if (dependenciesDiffer)
+		notes.push("Benchmark dependency versions differ; percentage comparisons are suppressed.");
 	if (baseline.schemaVersion === 1 || candidate.schemaVersion === 1)
 		notes.push("Legacy report: complete measurement settings may be unavailable.");
 	if (baseline.dirty || candidate.dirty)
@@ -103,10 +124,28 @@ export function renderComparison(baseline: ComparisonReport, candidate: Comparis
 		const nextNs = next ? latency(next.task) : undefined;
 		const remarks: string[] = [];
 		let comparable =
-			previous !== undefined && next !== undefined && !environmentDiffers && !profileDiffers;
+			previous !== undefined &&
+			next !== undefined &&
+			!environmentDiffers &&
+			!profileDiffers &&
+			!harnessDiffers &&
+			!dependenciesDiffer;
 		if (!previous) remarks.push("added");
 		if (!next) remarks.push("removed");
 		if (previous && next) {
+			if (
+				previous.task.workloadFingerprint !== undefined &&
+				next.task.workloadFingerprint !== undefined &&
+				previous.task.workloadFingerprint !== next.task.workloadFingerprint
+			) {
+				remarks.push("workload fingerprint differs");
+				comparable = false;
+			} else if (
+				previous.task.workloadFingerprint === undefined ||
+				next.task.workloadFingerprint === undefined
+			) {
+				remarks.push("workload fingerprint unavailable");
+			}
 			if ((previous.task.operationsPerSample ?? 1) !== (next.task.operationsPerSample ?? 1)) {
 				remarks.push("batch size changed");
 				comparable = false;

@@ -1,5 +1,6 @@
 export interface BenchmarkTaskReport {
 	name: string;
+	workloadFingerprint?: string;
 	samples: number;
 	latencyMedianNs: number;
 	latencyMeanNs: number;
@@ -29,6 +30,10 @@ interface ReportMetadata {
 	profile: "quick" | "comparison";
 	timestamp: string;
 	environment: Record<string, string>;
+	/** Added after the initial schema-2 release; absent in older reports. */
+	harnessFingerprint?: string;
+	/** Added after the initial schema-2 release; absent in older reports. */
+	dependencies?: Record<string, string>;
 }
 
 export interface BenchmarkReport extends ReportMetadata {
@@ -38,6 +43,7 @@ export interface BenchmarkReport extends ReportMetadata {
 
 export interface AggregatedTaskReport {
 	name: string;
+	workloadFingerprint?: string;
 	medianOfMedianNs: number;
 	minMedianNs: number;
 	maxMedianNs: number;
@@ -75,11 +81,14 @@ export function aggregateReports(reports: readonly BenchmarkReport[]): Aggregate
 			dirty: report.dirty,
 			profile: report.profile,
 			environment: report.environment,
+			harnessFingerprint: report.harnessFingerprint,
+			dependencies: report.dependencies,
 			suites: report.suites.map(({ tasks, ...suite }) => ({
 				...suite,
-				tasks: tasks.map(({ name, operationsPerSample }) => ({
+				tasks: tasks.map(({ name, operationsPerSample, workloadFingerprint }) => ({
 					name,
 					operationsPerSample,
+					workloadFingerprint,
 				})),
 			})),
 		});
@@ -117,6 +126,9 @@ export function aggregateReports(reports: readonly BenchmarkReport[]): Aggregate
 				);
 				return {
 					name: task.name,
+					...(task.workloadFingerprint === undefined
+						? {}
+						: { workloadFingerprint: task.workloadFingerprint }),
 					medianOfMedianNs,
 					minMedianNs,
 					maxMedianNs,

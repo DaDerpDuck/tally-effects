@@ -12,7 +12,8 @@ import type { Registrable, Registry } from "../state/Registrable.js";
 import type { Source } from "../state/source/Source.js";
 import type { AnySourceType } from "../state/source/SourceType.js";
 import type { Disconnect } from "../util/Disconnect.js";
-import { getOrInsert } from "../util/GetOrInsert.js";
+import { CallbackSet, throwCallbackErrors } from "../util/CallbackSet.js";
+import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import { AgentState } from "./AgentState.js";
 
 type ReplicationCallback<TEntity> = (agent: AgentState<TEntity>, event: ReplicationEvent) => void;
@@ -38,13 +39,21 @@ export class TallyContext<TEntity> {
 	};
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
 
-	private readonly sourceAddedCallbacks = new Set<SourceCallback<TEntity>>();
-	private readonly sourceRemovedCallbacks = new Set<SourceCallback<TEntity>>();
-	private readonly sourceUpdatedCallbacks = new Set<SourceCallback<TEntity>>();
-	private readonly descriptorAddedCallbacks = new Set<DescriptorCallback<TEntity>>();
-	private readonly descriptorRemovedCallbacks = new Set<DescriptorCallback<TEntity>>();
-	private readonly descriptorUpdatedCallbacks = new Set<DescriptorCallback<TEntity>>();
-	private readonly replicationCallbacks = new Set<ReplicationCallback<TEntity>>();
+	private readonly sourceAddedCallbacks = new CallbackSet<[AgentState<TEntity>, Source]>();
+	private readonly sourceRemovedCallbacks = new CallbackSet<[AgentState<TEntity>, Source]>();
+	private readonly sourceUpdatedCallbacks = new CallbackSet<[AgentState<TEntity>, Source]>();
+	private readonly descriptorAddedCallbacks = new CallbackSet<
+		[AgentState<TEntity>, AnyDescriptor]
+	>();
+	private readonly descriptorRemovedCallbacks = new CallbackSet<
+		[AgentState<TEntity>, AnyDescriptor]
+	>();
+	private readonly descriptorUpdatedCallbacks = new CallbackSet<
+		[AgentState<TEntity>, AnyDescriptor]
+	>();
+	private readonly replicationCallbacks = new CallbackSet<
+		[AgentState<TEntity>, ReplicationEvent]
+	>();
 	private readonly agentConnections = new Map<AgentState<TEntity>, Set<Disconnect>>();
 
 	private destroyed = false;
@@ -71,37 +80,40 @@ export class TallyContext<TEntity> {
 		this.descriptorHandlers.forEach((handler, type) =>
 			agent.registerDescriptorHandler(type as DescriptorType<unknown, unknown>, handler)
 		);
-		const disconnectSet = getOrInsert(this.agentConnections, agent, new Set());
+		const disconnectSet = getOrInsertComputed(this.agentConnections, agent, () => new Set());
 		disconnectSet.add(
 			agent.onSourceAdded((source) => {
-				this.sourceAddedCallbacks.forEach((callback) => callback(agent, source));
+				const errors: unknown[] = [];
+				errors.push(...this.sourceAddedCallbacks.emit(agent, source));
 				if (source.type.replication && source.provenance.domain === "local")
-					this.replicationCallbacks.forEach((callback) =>
-						callback(agent, {
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
 							target: "source",
 							event: { kind: "added", source: serializeSource(source) },
 						})
 					);
+				throwCallbackErrors(errors, "Error during onSourceAdded");
 			})
 		);
 		disconnectSet.add(
 			agent.onSourceRemoved((source) => {
-				this.sourceRemovedCallbacks.forEach((callback) => callback(agent, source));
+				const errors = this.sourceRemovedCallbacks.emit(agent, source);
 				if (source.type.replication && source.provenance.domain === "local")
-					this.replicationCallbacks.forEach((callback) =>
-						callback(agent, {
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
 							target: "source",
 							event: { kind: "removed", id: source.id },
 						})
 					);
+				throwCallbackErrors(errors, "Error during onSourceRemoved");
 			})
 		);
 		disconnectSet.add(
 			agent.onSourceUpdated((source) => {
-				this.sourceUpdatedCallbacks.forEach((callback) => callback(agent, source));
+				const errors = this.sourceUpdatedCallbacks.emit(agent, source);
 				if (source.type.replication && source.provenance.domain === "local")
-					this.replicationCallbacks.forEach((callback) =>
-						callback(agent, {
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
 							target: "source",
 							event: {
 								kind: "updated",
@@ -110,38 +122,41 @@ export class TallyContext<TEntity> {
 							},
 						})
 					);
+				throwCallbackErrors(errors, "Error during onSourceUpdated");
 			})
 		);
 		disconnectSet.add(
 			agent.onDescriptorAdded((descriptor) => {
-				this.descriptorAddedCallbacks.forEach((callback) => callback(agent, descriptor));
+				const errors = this.descriptorAddedCallbacks.emit(agent, descriptor);
 				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.replicationCallbacks.forEach((callback) =>
-						callback(agent, {
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
 							target: "descriptor",
 							event: { kind: "added", descriptor: serializeDescriptor(descriptor) },
 						})
 					);
+				throwCallbackErrors(errors, "Error during onDescriptorAdded");
 			})
 		);
 		disconnectSet.add(
 			agent.onDescriptorRemoved((descriptor) => {
-				this.descriptorRemovedCallbacks.forEach((callback) => callback(agent, descriptor));
+				const errors = this.descriptorRemovedCallbacks.emit(agent, descriptor);
 				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.replicationCallbacks.forEach((callback) =>
-						callback(agent, {
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
 							target: "descriptor",
 							event: { kind: "removed", id: descriptor.id },
 						})
 					);
+				throwCallbackErrors(errors, "Error during onDescriptorRemoved");
 			})
 		);
 		disconnectSet.add(
 			agent.onDescriptorUpdated((descriptor) => {
-				this.descriptorUpdatedCallbacks.forEach((callback) => callback(agent, descriptor));
+				const errors = this.descriptorUpdatedCallbacks.emit(agent, descriptor);
 				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.replicationCallbacks.forEach((callback) =>
-						callback(agent, {
+					errors.push(
+						...this.replicationCallbacks.emit(agent, {
 							target: "descriptor",
 							event: {
 								kind: "updated",
@@ -150,6 +165,7 @@ export class TallyContext<TEntity> {
 							},
 						})
 					);
+				throwCallbackErrors(errors, "Error during onDescriptorUpdated");
 			})
 		);
 		disconnectSet.add(
@@ -189,38 +205,32 @@ export class TallyContext<TEntity> {
 
 	onSourceAdded(callback: SourceCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
-		this.sourceAddedCallbacks.add(callback);
-		return () => this.sourceAddedCallbacks.delete(callback);
+		return this.sourceAddedCallbacks.add(callback);
 	}
 
 	onSourceRemoved(callback: SourceCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
-		this.sourceRemovedCallbacks.add(callback);
-		return () => this.sourceRemovedCallbacks.delete(callback);
+		return this.sourceRemovedCallbacks.add(callback);
 	}
 
 	onSourceUpdated(callback: SourceCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
-		this.sourceUpdatedCallbacks.add(callback);
-		return () => this.sourceUpdatedCallbacks.delete(callback);
+		return this.sourceUpdatedCallbacks.add(callback);
 	}
 
 	onDescriptorAdded(callback: DescriptorCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
-		this.descriptorAddedCallbacks.add(callback);
-		return () => this.descriptorAddedCallbacks.delete(callback);
+		return this.descriptorAddedCallbacks.add(callback);
 	}
 
 	onDescriptorRemoved(callback: DescriptorCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
-		this.descriptorRemovedCallbacks.add(callback);
-		return () => this.descriptorRemovedCallbacks.delete(callback);
+		return this.descriptorRemovedCallbacks.add(callback);
 	}
 
 	onDescriptorUpdated(callback: DescriptorCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
-		this.descriptorUpdatedCallbacks.add(callback);
-		return () => this.descriptorUpdatedCallbacks.delete(callback);
+		return this.descriptorUpdatedCallbacks.add(callback);
 	}
 
 	/**
@@ -232,8 +242,7 @@ export class TallyContext<TEntity> {
 	 */
 	onReplicationEmit(callback: ReplicationCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
-		this.replicationCallbacks.add(callback);
-		return () => this.replicationCallbacks.delete(callback);
+		return this.replicationCallbacks.add(callback);
 	}
 
 	/**
