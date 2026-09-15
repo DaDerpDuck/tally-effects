@@ -46,7 +46,7 @@ export class SourceManager {
 				operation: "admit",
 				event: "source-added",
 			},
-			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 		this.sourceRemovedCallbacks = new CallbackSet(
 			reporter,
@@ -54,7 +54,7 @@ export class SourceManager {
 				operation: "destroy",
 				event: "source-removed",
 			},
-			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 		this.sourceUpdatedCallbacks = new CallbackSet(
 			reporter,
@@ -62,7 +62,7 @@ export class SourceManager {
 				operation: "update",
 				event: "source-updated",
 			},
-			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 	}
 

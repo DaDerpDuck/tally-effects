@@ -56,7 +56,9 @@ export class DescriptorManager<TEntity> {
 				operation: "admit",
 				event: "descriptor-added",
 			},
-			(descriptor) => ({ kind: "descriptor", type: descriptor.type.name, id: descriptor.id })
+			(descriptor) => ({
+				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+			})
 		);
 		this.descriptorRemovedCallbacks = new CallbackSet(
 			reporter,
@@ -64,7 +66,9 @@ export class DescriptorManager<TEntity> {
 				operation: "destroy",
 				event: "descriptor-removed",
 			},
-			(descriptor) => ({ kind: "descriptor", type: descriptor.type.name, id: descriptor.id })
+			(descriptor) => ({
+				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+			})
 		);
 		this.descriptorUpdatedCallbacks = new CallbackSet(
 			reporter,
@@ -72,7 +76,9 @@ export class DescriptorManager<TEntity> {
 				operation: "update",
 				event: "descriptor-updated",
 			},
-			(descriptor) => ({ kind: "descriptor", type: descriptor.type.name, id: descriptor.id })
+			(descriptor) => ({
+				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+			})
 		);
 	}
 

@@ -15,11 +15,17 @@ import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import { AgentState } from "./AgentState.js";
-import { tallyReport, type TallyReporter } from "./TallyReporter.js";
+import { tallyReport, type TallyReporter, type TallyReportOperation } from "./TallyReporter.js";
 
 type ReplicationCallback<TEntity> = (agent: AgentState<TEntity>, event: ReplicationEvent) => void;
 type SourceCallback<TEntity> = (agent: AgentState<TEntity>, source: Source) => void;
 type DescriptorCallback<TEntity> = (agent: AgentState<TEntity>, descriptor: AnyDescriptor) => void;
+
+const replicationOperationByEventKind = {
+	added: "admit",
+	updated: "update",
+	removed: "destroy",
+} as const satisfies Record<ReplicationEvent["event"]["kind"], TallyReportOperation>;
 
 /**
  * Coordinates shared Tally configuration and lifecycle behavior across
@@ -58,7 +64,7 @@ export class TallyContext<TEntity> {
 				operation: "admit",
 				event: "source-added",
 			},
-			(_, source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(_, source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 		this.sourceRemovedCallbacks = new CallbackSet(
 			reporter,
@@ -66,7 +72,7 @@ export class TallyContext<TEntity> {
 				operation: "destroy",
 				event: "source-removed",
 			},
-			(_, source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(_, source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 		this.sourceUpdatedCallbacks = new CallbackSet(
 			reporter,
@@ -74,7 +80,7 @@ export class TallyContext<TEntity> {
 				operation: "update",
 				event: "source-updated",
 			},
-			(_, source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(_, source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 		this.descriptorAddedCallbacks = new CallbackSet(
 			reporter,
@@ -83,9 +89,11 @@ export class TallyContext<TEntity> {
 				event: "descriptor-added",
 			},
 			(_, descriptor) => ({
-				kind: "descriptor",
-				type: descriptor.type.name,
-				id: descriptor.id,
+				subject: {
+					kind: "descriptor",
+					type: descriptor.type.name,
+					id: descriptor.id,
+				},
 			})
 		);
 		this.descriptorRemovedCallbacks = new CallbackSet(
@@ -95,9 +103,11 @@ export class TallyContext<TEntity> {
 				event: "descriptor-removed",
 			},
 			(_, descriptor) => ({
-				kind: "descriptor",
-				type: descriptor.type.name,
-				id: descriptor.id,
+				subject: {
+					kind: "descriptor",
+					type: descriptor.type.name,
+					id: descriptor.id,
+				},
 			})
 		);
 		this.descriptorUpdatedCallbacks = new CallbackSet(
@@ -107,15 +117,23 @@ export class TallyContext<TEntity> {
 				event: "descriptor-updated",
 			},
 			(_, descriptor) => ({
-				kind: "descriptor",
-				type: descriptor.type.name,
-				id: descriptor.id,
+				subject: {
+					kind: "descriptor",
+					type: descriptor.type.name,
+					id: descriptor.id,
+				},
 			})
 		);
-		this.replicationCallbacks = new CallbackSet(reporter, {
-			operation: "update",
-			event: "replication-emitted",
-		});
+		this.replicationCallbacks = new CallbackSet(
+			reporter,
+			{
+				operation: "update",
+				event: "replication-emitted",
+			},
+			(_, event) => ({
+				operation: replicationOperationByEventKind[event.event.kind],
+			})
+		);
 	}
 
 	get sources(): ReadonlyMap<string, AnySourceType> {

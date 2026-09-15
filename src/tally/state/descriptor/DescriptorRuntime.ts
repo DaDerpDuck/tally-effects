@@ -66,7 +66,9 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 				operation: "update",
 				event: "descriptor-updated",
 			},
-			(descriptor) => ({ kind: "descriptor", type: descriptor.type.name, id: descriptor.id })
+			(descriptor) => ({
+				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+			})
 		);
 		this.destroyCallbacks = new CallbackSet(
 			reporter,
@@ -74,7 +76,9 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 				operation: "destroy",
 				event: "descriptor-removed",
 			},
-			(descriptor) => ({ kind: "descriptor", type: descriptor.type.name, id: descriptor.id })
+			(descriptor) => ({
+				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+			})
 		);
 	}
 

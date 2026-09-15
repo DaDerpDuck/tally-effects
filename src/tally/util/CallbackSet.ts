@@ -11,15 +11,17 @@ interface Subscription<TArgs extends readonly unknown[]> {
 	connected: boolean;
 }
 
+type CallbackErrorContext = Omit<TallyReport, "error" | "code"> & {
+	readonly code?: "callback-failed";
+};
+
 export class CallbackSet<TArgs extends readonly unknown[]> {
 	private readonly subscriptions = new Set<Subscription<TArgs>>();
 
 	constructor(
 		private readonly reporter: TallyReporter,
-		private readonly context: Omit<TallyReport, "error" | "code"> & {
-			readonly code?: "callback-failed";
-		},
-		private readonly subjectProvider?: (...args: TArgs) => TallyReportSubject
+		private readonly context: CallbackErrorContext,
+		private readonly contextProvider?: (...args: TArgs) => Partial<CallbackErrorContext>
 	) {}
 
 	add(callback: (...args: TArgs) => void): Disconnect {
@@ -41,7 +43,7 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 			} catch (callbackError) {
 				tallyReport(this.reporter, {
 					...this.context,
-					subject: this.subjectProvider?.(...args) ?? this.context.subject,
+					...this.contextProvider?.(...args),
 					code: "callback-failed",
 					error: callbackError,
 				});

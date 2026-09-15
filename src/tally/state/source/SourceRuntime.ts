@@ -71,7 +71,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 				operation: "update",
 				event: "source-updated",
 			},
-			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 		this.destroyCallbacks = new CallbackSet(
 			reporter,
@@ -79,7 +79,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 				operation: "destroy",
 				event: "source-removed",
 			},
-			(source) => ({ kind: "source", type: source.type.name, id: source.id })
+			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
 		);
 	}
 
