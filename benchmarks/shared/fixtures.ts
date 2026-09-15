@@ -8,6 +8,11 @@ import {
 	type Source,
 	type SourceTypeDefinition,
 } from "../../src/index.js";
+import type { TallyReporter } from "../../src/index.js";
+
+export const benchmarkReporter: TallyReporter = {
+	report: () => {},
+};
 
 export function createSourceType<TData = undefined>(
 	options?: Partial<SourceTypeDefinition<TData>>
@@ -32,7 +37,7 @@ export function createNumberSourceFixture(duplication?: DuplicatePolicy<Source<n
 		contribute: (value) => [property.add(value)],
 		...(duplication === undefined ? {} : { duplication }),
 	});
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 
 	return { agent, property, type };
 }

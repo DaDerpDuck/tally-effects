@@ -1,4 +1,5 @@
-import { CallbackSet, throwCallbackErrors } from "../../util/CallbackSet.js";
+import { tallyReport, type TallyReporter } from "../../core/TallyReporter.js";
+import { CallbackSet } from "../../util/CallbackSet.js";
 import type { Disconnect } from "../../util/Disconnect.js";
 import type { AdmissionRuntime, RuntimeOwnership } from "../AdmissionRuntime.js";
 import type { AdmissionLease } from "../AdmissionTransaction.js";
@@ -9,6 +10,7 @@ import { DescriptorInstance, type DescriptorIdentity } from "./DescriptorInstanc
 import type { DescriptorType } from "./DescriptorType.js";
 
 export interface DescriptorHost<TDescriptorData, TSourceData> {
+	getReporter(): TallyReporter;
 	tryBind(derivedSources: Source[]): DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	installDescriptor(descriptor: DescriptorInstance<TDescriptorData, TSourceData>): void;
 	uninstallDescriptor(descriptor: DescriptorInstance<TDescriptorData, TSourceData>): void;
@@ -32,12 +34,10 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	public readonly instance: DescriptorInstance<TDescriptorData, TSourceData>;
 	public readonly type: DescriptorType<TDescriptorData, TSourceData>;
 	private readonly derivedSources = new Array<Source>();
-	private readonly updateCallbacks = new CallbackSet<
+	private readonly updateCallbacks: CallbackSet<[self: Descriptor<TDescriptorData, TSourceData>]>;
+	private readonly destroyCallbacks: CallbackSet<
 		[self: Descriptor<TDescriptorData, TSourceData>]
-	>();
-	private readonly destroyCallbacks = new CallbackSet<
-		[self: Descriptor<TDescriptorData, TSourceData>]
-	>();
+	>;
 	private ownership: RuntimeOwnership;
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	private data: TDescriptorData;
@@ -58,6 +58,28 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 			lease,
 		};
 		this.instance = new DescriptorInstance(identity, this);
+
+		const reporter = host.getReporter();
+		this.updateCallbacks = new CallbackSet(
+			reporter,
+			{
+				operation: "update",
+				event: "descriptor-updated",
+			},
+			(descriptor) => ({
+				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+			})
+		);
+		this.destroyCallbacks = new CallbackSet(
+			reporter,
+			{
+				operation: "destroy",
+				event: "descriptor-removed",
+			},
+			(descriptor) => ({
+				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+			})
+		);
 	}
 
 	prepare(): void {
@@ -111,26 +133,17 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		if (this.ownership.kind !== "admitting") return;
 		if (this.installed) this.host.uninstallDescriptor(this.instance);
 
-		const errors: unknown[] = [];
-		try {
-			this.cleanupBinding();
-		} catch (e) {
-			errors.push(e);
-		}
+		this.cleanupBinding();
 
 		this.ownership = { kind: "destroyed" };
 		this.updateCallbacks.clear();
 
 		if (this.announced) {
-			errors.push(...this.destroyCallbacks.emit(this.instance));
-			try {
-				this.host.announceDestroyed(this.instance);
-			} catch (error) {
-				errors.push(error);
-			}
+			this.destroyCallbacks.emit(this.instance);
+			this.host.announceDestroyed(this.instance);
 		}
+
 		this.destroyCallbacks.clear();
-		throwCallbackErrors(errors, "Errors occurred while rolling back Descriptor admission");
 	}
 
 	get(): TDescriptorData {
@@ -161,15 +174,10 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 			}
 
 			if (this.isInactive()) return;
-			const errors = this.updateCallbacks.emit(this.instance);
-			if (this.isInactive())
-				return throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
-			try {
-				this.host.announceUpdated(this.instance);
-			} catch (error) {
-				errors.push(error);
-			}
-			throwCallbackErrors(errors, "Errors occurred while updating Descriptor");
+			this.updateCallbacks.emit(this.instance);
+
+			if (this.isInactive()) return;
+			this.host.announceUpdated(this.instance);
 		} finally {
 			this.updating = false;
 		}
@@ -189,22 +197,12 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		unlink();
 		this.host.uninstallDescriptor(this.instance);
 
-		const errors: unknown[] = [];
-		try {
-			this.cleanupBinding();
-		} catch (e) {
-			errors.push(e);
-		}
+		this.cleanupBinding();
 
 		this.updateCallbacks.clear();
-		errors.push(...this.destroyCallbacks.emit(this.instance));
+		this.destroyCallbacks.emit(this.instance);
 		this.destroyCallbacks.clear();
-		try {
-			this.host.announceDestroyed(this.instance);
-		} catch (error) {
-			errors.push(error);
-		}
-		throwCallbackErrors(errors, "Errors occurred while destroying Descriptor");
+		this.host.announceDestroyed(this.instance);
 	}
 
 	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
@@ -229,22 +227,27 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	}
 
 	private cleanupBinding() {
-		const errors: unknown[] = [];
 		try {
 			this.binding?.destroy();
-		} catch (e) {
-			errors.push(e);
+		} catch (error) {
+			tallyReport(this.host.getReporter(), {
+				code: "binding-cleanup-failed",
+				operation: "destroy",
+				error,
+			});
 		}
 
 		for (let i = 0; i < this.derivedSources.length; i++) {
 			try {
 				this.derivedSources[i]!.destroy();
-			} catch (e) {
-				errors.push(e);
+			} catch (error) {
+				tallyReport(this.host.getReporter(), {
+					code: "derived-source-cleanup-failed",
+					operation: "destroy",
+					error,
+				});
 			}
 		}
 		this.derivedSources.length = 0;
-
-		throwCallbackErrors(errors, "Error while cleaning descriptor binding");
 	}
 }

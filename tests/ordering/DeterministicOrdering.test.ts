@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 import type { ModifierOrder } from "../../src/tally/modifier/ModifierOrder.js";
 import { ModifierRegistry } from "../../src/tally/modifier/ModifierRegistry.js";
 import { OrderingDomain } from "../../src/tally/modifier/OrderingDomain.js";
-import { AgentState, defineSourceType, type Modifier, type Property } from "../src/index.js";
+import {
+	AgentState,
+	defineSourceType,
+	testReporter,
+	type Modifier,
+	type Property,
+} from "../src/index.js";
 
 const TraceProperty: Property<string> = {
 	name: "DeterministicTrace",
@@ -146,7 +152,7 @@ const OrderedSource = defineSourceType<OrderedSourceData>({
 
 describe("deterministic Source ordering integration", () => {
 	it("does not let local creation time override authoritative ordering", () => {
-		const agent = new AgentState({});
+		const agent = new AgentState({}, testReporter);
 
 		agent.addSource(
 			OrderedSource,
@@ -168,7 +174,7 @@ describe("deterministic Source ordering integration", () => {
 	});
 
 	it("keeps a Source in the same ordering position after it updates", () => {
-		const agent = new AgentState({});
+		const agent = new AgentState({}, testReporter);
 
 		const first = agent.addSource(
 			OrderedSource,
@@ -190,8 +196,8 @@ describe("deterministic Source ordering integration", () => {
 	});
 
 	it("converges when the same authoritative Sources are created in different local orders", () => {
-		const firstAgent = new AgentState({});
-		const secondAgent = new AgentState({});
+		const firstAgent = new AgentState({}, testReporter);
+		const secondAgent = new AgentState({}, testReporter);
 
 		firstAgent.addSource(
 			OrderedSource,

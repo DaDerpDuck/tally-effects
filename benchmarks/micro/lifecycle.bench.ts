@@ -4,12 +4,13 @@ import {
 	createDescriptorFixture,
 	createNumberSourceFixture,
 	createSourceType,
+	benchmarkReporter,
 } from "../shared/fixtures.js";
 
 const sourceLifecycle = createBench("Source lifecycle");
 
 {
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	const type = createSourceType();
 	let source: Source<undefined> | undefined;
 

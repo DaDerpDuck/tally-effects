@@ -11,6 +11,7 @@ import {
 	type ReplicationEvent,
 	serializeDescriptor,
 	TallyContext,
+	testReporter,
 } from "../src/index.js";
 
 interface SourceData {
@@ -89,7 +90,7 @@ function createReplicationFixture({
 }: ReplicationFixtureOptions = {}) {
 	const allDescriptorTypes = [ValueDescriptor, ...descriptorTypes];
 	const createTally = () => {
-		const tally = new TallyContext<undefined>();
+		const tally = new TallyContext<undefined>(testReporter);
 		tally.register(Value);
 		tally.register(DescriptorSource);
 		for (const descriptorType of allDescriptorTypes) {

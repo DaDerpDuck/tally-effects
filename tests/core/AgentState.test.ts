@@ -1,11 +1,45 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	AgentState,
+	contributeModifier,
+	createTestReporter,
 	defineBooleanProperty,
 	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
+	testReporter,
+	type Property,
+	type ModifierContribution,
 } from "../src/index.js";
+
+function createResolutionFailureFixture(name: string) {
+	let shouldThrow = false;
+	const property: Property<number> = {
+		name: `${name}Property`,
+		defaultValue: 0,
+		valueEquals: Object.is,
+		resolve(base, modifiers) {
+			if (shouldThrow) throw new Error(`${name} resolution failed`);
+			return modifiers.reduce((value, modifier) => value + (modifier.value as number), base);
+		},
+	};
+	const sourceType = defineSourceType<number>({
+		name: `${name}Source`,
+		priority: 100,
+		contribute: (value) => [contributeModifier({ property, operation: "add", value })],
+	});
+
+	return {
+		property,
+		sourceType,
+		throwOnResolve() {
+			shouldThrow = true;
+		},
+		allowResolve() {
+			shouldThrow = false;
+		},
+	};
+}
 
 describe("agent state", () => {
 	const Poison = defineNumberProperty({
@@ -25,7 +59,7 @@ describe("agent state", () => {
 	});
 
 	it("adds source", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.get(Poison)).toBe(0);
 
 		const source = agent.addSource(PoisonSource, { intensity: 5 });
@@ -34,7 +68,7 @@ describe("agent state", () => {
 	});
 
 	it("resolves source with falsy cache (number)", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.get(Poison)).toBe(0);
 
 		const source = agent.addSource(PoisonSource, { intensity: 5 })!;
@@ -59,7 +93,7 @@ describe("agent state", () => {
 			contribute: (data) => [BooleanProp.toggle(data)],
 		});
 
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.get(BooleanProp)).toBe(false);
 
 		const source = agent.addSource(BooleanSource, true)!;
@@ -88,7 +122,7 @@ describe("agent state", () => {
 			},
 		});
 
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.get(Prop1)).toBe(10);
 		expect(agent.get(Prop2)).toBe(20);
 
@@ -115,7 +149,7 @@ describe("agent state", () => {
 			duplication: { policy: "allow" },
 		});
 
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.get(NumProp)).toBe(0);
 
 		const source1 = agent.addSource(PropSource, 1)!;
@@ -146,7 +180,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const initial = { value: 1 };
 		const source = agent.addSource(SourceType, initial)!;
 		const updated = vi.fn();
@@ -166,7 +200,7 @@ describe("agent state", () => {
 			contribute: () => [],
 			dataEquals: (a, b) => a.value === b.value,
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const source = agent.addSource(SourceType, { value: 1, label: "first" })!;
 		const updated = vi.fn();
 		source.onUpdate(updated);
@@ -178,8 +212,366 @@ describe("agent state", () => {
 		expect(updated).toHaveBeenCalledTimes(1);
 	});
 
+	it("throws and restores the prior Source state when contribution or modifier application fails", () => {
+		const Property = defineNumberProperty({
+			name: "SourceSetFailureProperty",
+			defaultValue: 0,
+		});
+		const throwingModifier: ModifierContribution = {
+			applyTo() {
+				throw new Error("modifier application failed");
+			},
+		};
+		const SourceType = defineSourceType<number>({
+			name: "SourceSetFailure",
+			priority: 100,
+			contribute(value) {
+				if (value === 2) throw new Error("contribution failed");
+				if (value === 3) return [throwingModifier];
+				return [Property.add(value)];
+			},
+		});
+		const agent = new AgentState(undefined, testReporter);
+		const source = agent.addSource(SourceType, 1)!;
+		const updated = vi.fn();
+		source.onUpdate(updated);
+
+		expect(() => source.set(2)).toThrow("contribution failed");
+		expect(source.get()).toBe(1);
+		expect(agent.get(Property)).toBe(1);
+
+		expect(() => source.set(3)).toThrow("modifier application failed");
+		expect(source.get()).toBe(1);
+		expect(agent.get(Property)).toBe(1);
+		expect(updated).not.toHaveBeenCalled();
+	});
+
+	it("propagates source equality failures without changing the source", () => {
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingSourceEquality",
+			priority: 100,
+			contribute: () => [],
+			dataEquals() {
+				throw new Error("source equality failed");
+			},
+		});
+		const agent = new AgentState(undefined, testReporter);
+		const source = agent.addSource(SourceType, 1)!;
+
+		expect(() => source.set(2)).toThrow("source equality failed");
+		expect(source.get()).toBe(1);
+	});
+
+	it("reports property equality failures while preserving the last successful cache", () => {
+		let shouldThrow = false;
+		const property: Property<number> = {
+			name: "ThrowingPropertyEquality",
+			defaultValue: 0,
+			resolve(base, modifiers) {
+				return modifiers.reduce(
+					(value, modifier) => value + (modifier.value as number),
+					base
+				);
+			},
+			valueEquals(a, b) {
+				if (shouldThrow) throw new Error("property equality failed");
+				return Object.is(a, b);
+			},
+		};
+		const SourceType = defineSourceType<number>({
+			name: "ThrowingPropertyEqualitySource",
+			priority: 100,
+			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
+		});
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const source = agent.addSource(SourceType, 1)!;
+
+		shouldThrow = true;
+		expect(() => source.set(2)).not.toThrow();
+		expect(source.get()).toBe(2);
+		expect(agent.get(property)).toBe(1);
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("property equality failed"),
+				code: "property-equality-failed",
+				operation: "resolve",
+				subject: { kind: "property", name: "ThrowingPropertyEquality" },
+			}),
+		]);
+
+		shouldThrow = false;
+		agent.batch(() => {});
+		expect(agent.get(property)).toBe(2);
+	});
+
+	it("contains property equality failures during Source teardown", () => {
+		let shouldThrow = false;
+		const property: Property<number> = {
+			name: "TeardownPropertyEquality",
+			defaultValue: 0,
+			resolve: (base, modifiers) =>
+				modifiers.reduce((value, modifier) => value + (modifier.value as number), base),
+			valueEquals(a, b) {
+				if (shouldThrow) throw new Error("teardown equality failed");
+				return Object.is(a, b);
+			},
+		};
+		const SourceType = defineSourceType<number>({
+			name: "TeardownPropertyEqualitySource",
+			priority: 100,
+			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
+		});
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const source = agent.addSource(SourceType, 1)!;
+
+		shouldThrow = true;
+		expect(() => source.destroy()).not.toThrow();
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("teardown equality failed"),
+				code: "property-equality-failed",
+				operation: "resolve",
+				subject: {
+					kind: "property",
+					name: "TeardownPropertyEquality",
+				},
+			}),
+		]);
+	});
+
+	it("contains property equality failures during batched Source teardown", () => {
+		let shouldThrow = false;
+		const property: Property<number> = {
+			name: "TeardownPropertyEquality",
+			defaultValue: 0,
+			resolve: (base, modifiers) =>
+				modifiers.reduce((value, modifier) => value + (modifier.value as number), base),
+			valueEquals(a, b) {
+				if (shouldThrow) throw new Error("teardown equality failed");
+				return Object.is(a, b);
+			},
+		};
+		const SourceType = defineSourceType<number>({
+			name: "TeardownPropertyEqualitySource",
+			priority: 100,
+			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
+		});
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const source = agent.addSource(SourceType, 1)!;
+
+		shouldThrow = true;
+		expect(() => agent.batch(() => source.destroy())).not.toThrow();
+		expect(agent.getSources(SourceType)).toEqual(new Set());
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("teardown equality failed"),
+				code: "property-equality-failed",
+				operation: "resolve",
+				subject: {
+					kind: "property",
+					name: "TeardownPropertyEquality",
+				},
+			}),
+		]);
+	});
+
+	it("reports update equality failures during an unrelated batched Source teardown", () => {
+		let shouldThrow = false;
+		const updatedProperty: Property<number> = {
+			name: "UpdatedPropertyEquality",
+			defaultValue: 0,
+			resolve: (base, modifiers) =>
+				modifiers.reduce((value, modifier) => value + (modifier.value as number), base),
+			valueEquals(a, b) {
+				if (shouldThrow) throw new Error("updated property equality failed");
+				return Object.is(a, b);
+			},
+		};
+		const teardownProperty = defineNumberProperty({
+			name: "UnrelatedTeardownProperty",
+			defaultValue: 0,
+		});
+		const UpdatedSource = defineSourceType<number>({
+			name: "UpdatedPropertyEqualitySource",
+			priority: 100,
+			contribute: (value) => [
+				contributeModifier({ property: updatedProperty, operation: "add", value }),
+			],
+		});
+		const TeardownSource = defineSourceType<number>({
+			name: "UnrelatedTeardownSource",
+			priority: 100,
+			contribute: (value) => [teardownProperty.add(value)],
+		});
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const updated = agent.addSource(UpdatedSource, 1)!;
+		const tornDown = agent.addSource(TeardownSource, 1)!;
+
+		shouldThrow = true;
+		expect(() =>
+			agent.batch(() => {
+				updated.set(2);
+				tornDown.destroy();
+			})
+		).not.toThrow();
+
+		expect(updated.get()).toBe(2);
+		expect(agent.get(updatedProperty)).toBe(1);
+		expect(agent.getSources(TeardownSource)).toEqual(new Set());
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("updated property equality failed"),
+				code: "property-equality-failed",
+				operation: "resolve",
+				subject: { kind: "property", name: "UpdatedPropertyEquality" },
+			}),
+		]);
+	});
+
+	it("retries failed equality resolution while completing Source teardown", () => {
+		let shouldThrow = false;
+		const throwingProperty: Property<number> = {
+			name: "ThrowingTeardownProperty",
+			defaultValue: 0,
+			resolve: (base, modifiers) =>
+				modifiers.reduce((value, modifier) => value + (modifier.value as number), base),
+			valueEquals(a, b) {
+				if (shouldThrow) throw new Error("teardown equality failed");
+				return Object.is(a, b);
+			},
+		};
+
+		const ThrowingSource = defineSourceType<number>({
+			name: "ThrowingTeardownSource",
+			priority: 100,
+			contribute: (value) => [
+				contributeModifier({ property: throwingProperty, operation: "add", value }),
+			],
+		});
+
+		const unrelatedProperty = defineNumberProperty({
+			name: "UnrelatedTeardownProperty",
+			defaultValue: 0,
+		});
+		const UnrelatedSource = defineSourceType<number>({
+			name: "UnrelatedTeardownSource",
+			priority: 100,
+			contribute: (value) => [unrelatedProperty.add(value)],
+		});
+
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const first = agent.addSource(ThrowingSource, 1)!;
+		const second = agent.addSource(UnrelatedSource, 1)!;
+		const secondDestroyed = vi.fn();
+		second.onDestroy(secondDestroyed);
+
+		shouldThrow = true;
+		expect(() => first.destroy()).not.toThrow();
+
+		// Retries the still-dirty first Property while tearing down `second`.
+		expect(() => second.destroy()).not.toThrow();
+
+		expect(secondDestroyed).toHaveBeenCalledWith(second);
+		expect(agent.getSources(UnrelatedSource)).toEqual(new Set());
+		expect(reports).toHaveLength(2);
+		expect(reports).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "property-equality-failed",
+					subject: { kind: "property", name: "ThrowingTeardownProperty" },
+				}),
+			])
+		);
+	});
+
+	it("completes Source removal despite an unrelated pending equality failure", () => {
+		let shouldThrow = false;
+		const pendingProperty: Property<number> = {
+			name: "PendingEqualityProperty",
+			defaultValue: 0,
+			resolve: (base, modifiers) =>
+				modifiers.reduce((value, modifier) => value + (modifier.value as number), base),
+			valueEquals(a, b) {
+				if (shouldThrow) throw new Error("pending equality failed");
+				return Object.is(a, b);
+			},
+		};
+		const PendingSource = defineSourceType<number>({
+			name: "PendingEqualitySource",
+			priority: 100,
+			contribute: (value) => [
+				contributeModifier({ property: pendingProperty, operation: "add", value }),
+			],
+		});
+		const unrelatedProperty = defineNumberProperty({
+			name: "RemovalAfterPendingEqualityProperty",
+			defaultValue: 0,
+		});
+		const UnrelatedSource = defineSourceType<number>({
+			name: "RemovalAfterPendingEqualitySource",
+			priority: 100,
+			contribute: (value) => [unrelatedProperty.add(value)],
+		});
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const pending = agent.addSource(PendingSource, 1)!;
+		const unrelated = agent.addSource(UnrelatedSource, 1)!;
+		const destroyed = vi.fn();
+		const removed = vi.fn();
+		unrelated.onDestroy(destroyed);
+		agent.onSourceRemoved(removed);
+
+		shouldThrow = true;
+		expect(() => pending.set(2)).not.toThrow();
+
+		expect(() => unrelated.destroy()).not.toThrow();
+		expect(destroyed).toHaveBeenCalledWith(unrelated);
+		expect(removed).toHaveBeenCalledWith(unrelated);
+		expect(reports).toHaveLength(2);
+	});
+
+	it("reports updates after an equality failure during Source teardown", () => {
+		let shouldThrow = false;
+		const property: Property<number> = {
+			name: "UpdateAfterTeardownEqualityProperty",
+			defaultValue: 0,
+			resolve: (base, modifiers) =>
+				modifiers.reduce((value, modifier) => value + (modifier.value as number), base),
+			valueEquals(a, b) {
+				if (shouldThrow) throw new Error("update equality failed");
+				return Object.is(a, b);
+			},
+		};
+		const SourceType = defineSourceType<number>({
+			name: "UpdateAfterTeardownEqualitySource",
+			priority: 100,
+			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
+		});
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const tornDown = agent.addSource(SourceType, 1)!;
+		const updated = agent.addSource(SourceType, 1)!;
+		const updatedCallback = vi.fn();
+		updated.onUpdate(updatedCallback);
+
+		shouldThrow = true;
+		expect(() => tornDown.destroy()).not.toThrow();
+		expect(reports).toHaveLength(1);
+
+		expect(() => updated.set(2)).not.toThrow();
+		expect(updated.get()).toBe(2);
+		expect(updatedCallback).toHaveBeenCalledWith(updated);
+		expect(reports).toHaveLength(2);
+	});
+
 	it("throws when mutating a destroyed source", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const source = agent.addSource(PoisonSource, { intensity: 5 })!;
 
 		source.destroy();
@@ -189,7 +581,7 @@ describe("agent state", () => {
 	});
 
 	it("allows inert source callbacks after destruction", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const source = agent.addSource(PoisonSource, { intensity: 5 })!;
 		source.destroy();
 
@@ -206,7 +598,7 @@ describe("agent state", () => {
 	});
 
 	it("rejects AgentState mutations after destruction while keeping reads and callbacks safe", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.addSource(PoisonSource, { intensity: 5 });
 		agent.destroy();
 
@@ -232,7 +624,7 @@ describe("agent state", () => {
 	});
 
 	it("has property observation on source add", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -242,7 +634,7 @@ describe("agent state", () => {
 	});
 
 	it("has property observation on source set", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -257,7 +649,7 @@ describe("agent state", () => {
 	});
 
 	it("has no-op property observation on source set", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -281,7 +673,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: (value) => [Property.override(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const changed = vi.fn();
 		agent.onPropertyChanged(Property, changed);
 		const source = agent.addSource(SourceType, 1.1)!;
@@ -297,7 +689,7 @@ describe("agent state", () => {
 	});
 
 	it("has property observation on source destroy", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -321,13 +713,16 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
 		const source = agent.addSource(SourceType, 1)!;
 		const disconnect = agent.onPropertyChanged(Property, (value) => {
 			if (value === 2) throw new Error("property observer failed");
 		});
 
-		expect(() => source.set(2)).toThrow("property observer failed");
+		expect(() => source.set(2)).not.toThrow();
+		expect(reports).toHaveLength(1);
+		expect(reports[0]?.error).toEqual(new Error("property observer failed"));
 		expect(source.get()).toBe(2);
 		expect(agent.get(Property)).toBe(2);
 
@@ -340,8 +735,77 @@ describe("agent state", () => {
 		expect(agent.get(Property)).toBe(0);
 	});
 
+	it("notifies Source observers after property resolution fails during update and removal", () => {
+		const { sourceType, throwOnResolve } = createResolutionFailureFixture(
+			"SourceNotificationResolutionFailure"
+		);
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const source = agent.addSource(sourceType, 1)!;
+		const updated = vi.fn();
+		const removed = vi.fn();
+		agent.onSourceUpdated(updated);
+		agent.onSourceRemoved(removed);
+
+		throwOnResolve();
+		expect(() => source.set(2)).not.toThrow();
+		expect(updated).toHaveBeenCalledWith(source);
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("SourceNotificationResolutionFailure resolution failed"),
+				code: "property-resolution-failed",
+				operation: "resolve",
+				subject: {
+					kind: "property",
+					name: "SourceNotificationResolutionFailureProperty",
+				},
+			}),
+		]);
+
+		expect(() => source.destroy()).not.toThrow();
+		expect(removed).toHaveBeenCalledWith(source);
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("SourceNotificationResolutionFailure resolution failed"),
+				code: "property-resolution-failed",
+				operation: "resolve",
+				subject: {
+					kind: "property",
+					name: "SourceNotificationResolutionFailureProperty",
+				},
+			}),
+			expect.objectContaining({
+				error: new Error("SourceNotificationResolutionFailure resolution failed"),
+				code: "property-resolution-failed",
+				operation: "resolve",
+				subject: {
+					kind: "property",
+					name: "SourceNotificationResolutionFailureProperty",
+				},
+			}),
+		]);
+	});
+
+	it("keeps a failed property resolution dirty and recovers its last successful cache", () => {
+		const { property, sourceType, throwOnResolve, allowResolve } =
+			createResolutionFailureFixture("RecoverableResolutionFailure");
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		const source = agent.addSource(sourceType, 1)!;
+
+		throwOnResolve();
+		expect(() => source.set(2)).not.toThrow();
+		// The cache deliberately remains at the last successful resolution.
+		expect(agent.get(property)).toBe(1);
+
+		allowResolve();
+		agent.batch(() => {});
+		expect(agent.get(property)).toBe(2);
+		expect(reports).toHaveLength(1);
+	});
+
 	it("disconnects source observation", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const callback = vi.fn();
 
 		const disconnect = agent.onPropertyChanged(Poison, callback);
@@ -352,7 +816,7 @@ describe("agent state", () => {
 	});
 
 	it("checks has source", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.hasSource(PoisonSource)).toBe(false);
 
 		const source = agent.addSource(PoisonSource, { intensity: 100 })!;
@@ -363,7 +827,7 @@ describe("agent state", () => {
 	});
 
 	it("assigns unique monotonic source ids within an agent", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const SourceType = defineSourceType<undefined>({
 			name: "IdentifiedSource",
 			priority: 100,
@@ -378,7 +842,7 @@ describe("agent state", () => {
 	});
 
 	it("removes destroyed sources from unfiltered getSources", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const SourceTypeA = defineSourceType<undefined>({
 			name: "SourceA",
 			priority: 100,
@@ -412,7 +876,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: (value) => [Property.multiply(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 
 		agent.addSource(SourceTypeA, 5);
 		agent.addSource(SourceTypeB, 2);
@@ -446,7 +910,7 @@ describe("agent state", () => {
 			name: "AgentDestroyDescriptor",
 			source: DescriptorOutput,
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx) => {
 			const source = ctx.addSource(undefined)!;
 			return {
@@ -462,11 +926,50 @@ describe("agent state", () => {
 			throw new Error("first source destroy failed");
 		});
 
-		expect(() => agent.destroy()).toThrow("first source destroy failed");
+		expect(() => agent.destroy()).not.toThrow();
 		expect(agent.getSources()).toEqual(new Set());
 		expect(agent.getDescriptors()).toEqual(new Set());
 		expect(() => second.set(undefined)).toThrow("Source has been destroyed");
 		expect(() => descriptor.set(undefined)).toThrow("Descriptor has been destroyed");
+	});
+
+	it("destroys Descriptors after a Source teardown resolution failure", () => {
+		const { sourceType, throwOnResolve } = createResolutionFailureFixture(
+			"AgentDestroyResolutionFailure"
+		);
+		const DescriptorOutput = defineSourceType<undefined>({
+			name: "AgentDestroyResolutionFailureDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<undefined, undefined>({
+			name: "AgentDestroyResolutionFailureDescriptor",
+			source: DescriptorOutput,
+		});
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
+		agent.registerDescriptorHandler(DescriptorType, (context) => {
+			const source = context.addSource(undefined)!;
+			return { source, update: () => {}, destroy: () => source.destroy() };
+		});
+		agent.addSource(sourceType, 1);
+		agent.addDescriptor(DescriptorType, undefined);
+
+		throwOnResolve();
+		expect(() => agent.destroy()).not.toThrow();
+		expect(reports).toEqual([
+			expect.objectContaining({
+				error: new Error("AgentDestroyResolutionFailure resolution failed"),
+				code: "property-resolution-failed",
+				operation: "resolve",
+				subject: {
+					kind: "property",
+					name: "AgentDestroyResolutionFailureProperty",
+				},
+			}),
+		]);
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(DescriptorOutput)).toEqual(new Set());
 	});
 
 	it("does not notify a disconnected property observer more than once", () => {
@@ -476,7 +979,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const callback = vi.fn();
 		const disconnect = agent.onPropertyChanged(Property, callback);
 

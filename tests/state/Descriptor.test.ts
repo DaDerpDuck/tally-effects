@@ -1,12 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import {
 	AgentState,
+	contributeModifier,
 	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
 	type Descriptor,
 	DescriptorType,
+	type Property,
 	TallyContext,
+	type TallyReporter,
+	testReporter,
 } from "../src/index.js";
 
 interface DescriptorData {
@@ -58,9 +62,34 @@ function registerHandler(
 }
 
 function createAgentFixture() {
-	const agent = new AgentState<undefined>(undefined);
+	const agent = new AgentState<undefined>(undefined, testReporter);
 	const bindingDestroyed = registerHandler(agent);
 	return { agent, bindingDestroyed };
+}
+
+function createResolutionFailureSourceType(name: string) {
+	let shouldThrow = false;
+	const property: Property<number> = {
+		name: `${name}Property`,
+		defaultValue: 0,
+		valueEquals: Object.is,
+		resolve(base, modifiers) {
+			if (shouldThrow) throw new Error(`${name} resolution failed`);
+			return modifiers.reduce((value, modifier) => value + (modifier.value as number), base);
+		},
+	};
+	const sourceType = defineSourceType<number>({
+		name: `${name}Source`,
+		priority: 100,
+		contribute: (value) => [contributeModifier({ property, operation: "add", value })],
+	});
+
+	return {
+		sourceType,
+		throwOnResolve() {
+			shouldThrow = true;
+		},
+	};
 }
 
 describe("descriptor type", () => {
@@ -69,14 +98,14 @@ describe("descriptor type", () => {
 	});
 
 	it("registers descriptors by name", () => {
-		const tally = new TallyContext<undefined>();
+		const tally = new TallyContext<undefined>(testReporter);
 		tally.register(ValueDescriptor);
 
 		expect(tally.descriptors.get("ValueDescriptor")).toBe(ValueDescriptor);
 	});
 
 	it("allows the same descriptor type instance to be registered repeatedly", () => {
-		const tally = new TallyContext<undefined>();
+		const tally = new TallyContext<undefined>(testReporter);
 
 		tally.register(ValueDescriptor);
 		tally.register(ValueDescriptor);
@@ -88,7 +117,7 @@ describe("descriptor type", () => {
 
 describe("descriptor lifecycle", () => {
 	it("requires a descriptor handler before creation", () => {
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 
 		expect(() => agent.addDescriptor(ValueDescriptor, { value: 5 })).toThrow();
 	});
@@ -131,7 +160,7 @@ describe("descriptor lifecycle", () => {
 			name: "SerializedDescriptorUpdate",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const descriptorRef: { current: Descriptor<number, number> | undefined } = {
 			current: undefined,
 		};
@@ -163,6 +192,39 @@ describe("descriptor lifecycle", () => {
 		expect(announced).toHaveBeenCalledOnce();
 	});
 
+	it("propagates binding update failures without announcing an update", () => {
+		const Output = defineSourceType<number>({
+			name: "ThrowingBindingUpdateOutput",
+			priority: 100,
+			contribute: (value) => [Value.add(value)],
+		});
+		const ThrowingBindingUpdate = defineDescriptorType<number, number>({
+			name: "ThrowingBindingUpdate",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined, testReporter);
+		agent.registerDescriptorHandler(ThrowingBindingUpdate, (context, value) => {
+			const source = context.addSource(value)!;
+			return {
+				source,
+				update() {
+					throw new Error("binding update failed");
+				},
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(ThrowingBindingUpdate, 1)!;
+		const updates = vi.fn();
+		descriptor.onUpdate(updates);
+		const source = descriptor.getSource();
+
+		expect(() => descriptor.set(2)).toThrow("binding update failed");
+		expect(descriptor.get()).toBe(2);
+		expect(source.get()).toBe(1);
+		expect(agent.get(Value)).toBe(1);
+		expect(updates).not.toHaveBeenCalled();
+	});
+
 	it("uses Object.is as the default descriptor data equality", () => {
 		const { agent } = createAgentFixture();
 		const initial = { value: 5 };
@@ -183,7 +245,7 @@ describe("descriptor lifecycle", () => {
 			source: DescriptorSource,
 			dataEquals: (a, b) => a.value === b.value,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		registerHandler(agent, EquivalentDescriptor);
 		const descriptor = agent.addDescriptor(EquivalentDescriptor, { value: 5 })!;
 		const descriptorUpdated = vi.fn();
@@ -198,6 +260,25 @@ describe("descriptor lifecycle", () => {
 		descriptor.set({ value: 8 });
 		expect(descriptorUpdated).toHaveBeenCalledTimes(1);
 		expect(sourceUpdated).toHaveBeenCalledTimes(1);
+	});
+
+	it("propagates descriptor equality failures without changing descriptor data", () => {
+		const ThrowingEqualityDescriptor = defineDescriptorType<number, DescriptorData>({
+			name: "ThrowingDescriptorEquality",
+			source: DescriptorSource,
+			dataEquals() {
+				throw new Error("descriptor equality failed");
+			},
+		});
+		const agent = new AgentState<undefined>(undefined, testReporter);
+		agent.registerDescriptorHandler(ThrowingEqualityDescriptor, (context, value) => {
+			const source = context.addSource({ value })!;
+			return { source, update: () => {}, destroy: () => source.destroy() };
+		});
+		const descriptor = agent.addDescriptor(ThrowingEqualityDescriptor, 1)!;
+
+		expect(() => descriptor.set(2)).toThrow("descriptor equality failed");
+		expect(descriptor.get()).toBe(1);
 	});
 
 	it("disconnects descriptor update observers", () => {
@@ -261,7 +342,7 @@ describe("descriptor lifecycle", () => {
 			name: "ReentrantBindingDestroyDescriptor",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(ReentrantDescriptor, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -292,7 +373,7 @@ describe("descriptor lifecycle", () => {
 			name: "ThrowingReentrantBindingDestroyDescriptor",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		agent.registerDescriptorHandler(ThrowingDescriptor, (ctx, data) => {
 			const first = ctx.addSource(data)!;
 			const second = ctx.addSource(data + 1)!;
@@ -310,8 +391,66 @@ describe("descriptor lifecycle", () => {
 		});
 		const descriptor = agent.addDescriptor(ThrowingDescriptor, 1)!;
 
-		expect(() => descriptor.destroy()).toThrow("first derived source destroy failed");
+		expect(() => descriptor.destroy()).not.toThrow();
 		expect(agent.getDescriptors(ThrowingDescriptor)).toEqual(new Set());
+		expect(agent.getSources(Output)).toEqual(new Set());
+	});
+
+	it("drains every derived Source when one Source teardown resolution fails", () => {
+		const { sourceType, throwOnResolve } = createResolutionFailureSourceType(
+			"DescriptorDerivedSourceCleanup"
+		);
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "DescriptorDerivedSourceCleanupDescriptor",
+			source: sourceType,
+		});
+		const agent = new AgentState<undefined>(undefined, testReporter);
+		agent.registerDescriptorHandler(DescriptorType, (context) => {
+			const first = context.addSource(1)!;
+			context.addSource(2);
+			return { source: first, update: (value) => first.set(value), destroy: () => {} };
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+
+		throwOnResolve();
+		expect(() => descriptor.destroy()).not.toThrow();
+
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(sourceType)).toEqual(new Set());
+	});
+
+	it("drains every derived Source when reporting binding cleanup failure throws", () => {
+		const reporter: TallyReporter = {
+			report() {
+				throw new Error("reporter failed");
+			},
+		};
+		const Output = defineSourceType<number>({
+			name: "ReporterFailureDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ReporterFailureDescriptor",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined, reporter);
+		agent.registerDescriptorHandler(DescriptorType, (context) => {
+			const first = context.addSource(1)!;
+			context.addSource(2);
+			return {
+				source: first,
+				update: (value) => first.set(value),
+				destroy() {
+					throw new Error("binding cleanup failed");
+				},
+			};
+		});
+		const descriptor = agent.addDescriptor(DescriptorType, 1)!;
+
+		expect(() => descriptor.destroy()).not.toThrow();
+
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
 		expect(agent.getSources(Output)).toEqual(new Set());
 	});
 
@@ -388,7 +527,7 @@ describe("descriptor lifecycle", () => {
 	});
 
 	it("destroys every descriptor binding when all descriptors are destroyed", () => {
-		const agent = new AgentState<undefined>(undefined);
+		const agent = new AgentState<undefined>(undefined, testReporter);
 		const bindingDestroyed = registerHandler(agent);
 		agent.addDescriptor(ValueDescriptor, { value: 1 });
 		agent.addDescriptor(ValueDescriptor, { value: 2 });

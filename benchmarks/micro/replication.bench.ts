@@ -9,7 +9,11 @@ import {
 	type SourceType,
 } from "../../src/index.js";
 import { BENCH_SIZES, createBench, HEAVY_BENCH_OPTIONS, runBench } from "../shared/bench.js";
-import { createDescriptorFixture, createSourceType } from "../shared/fixtures.js";
+import {
+	benchmarkReporter,
+	createDescriptorFixture,
+	createSourceType,
+} from "../shared/fixtures.js";
 
 function createReplicatedSourceType() {
 	const property = defineNumberProperty({
@@ -60,7 +64,7 @@ for (const size of BENCH_SIZES.slice(0, -1)) {
 			async: false,
 			beforeAll() {
 				type = createReplicatedSourceType();
-				agent = new AgentState(undefined);
+				agent = new AgentState(undefined, benchmarkReporter);
 				agent.batch(() => {
 					for (let i = 0; i < size; i++) agent.addSource(type, i);
 				});
@@ -100,7 +104,7 @@ for (const size of BENCH_SIZES.slice(0, -1)) {
 			async: false,
 			beforeAll() {
 				const type = createReplicatedSourceType();
-				agent = new AgentState(undefined);
+				agent = new AgentState(undefined, benchmarkReporter);
 				receiver = new SourceReceiver(agent, (name) =>
 					name === type.name ? type : undefined
 				);

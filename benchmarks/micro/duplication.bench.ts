@@ -7,6 +7,7 @@ import {
 } from "../../src/index.js";
 import { addBatchedTask, createBench, HEAVY_BENCH_OPTIONS, runBench } from "../shared/bench.js";
 import {
+	benchmarkReporter,
 	createDescriptorFixture,
 	createNumberSourceFixture,
 	createSourceType,
@@ -16,7 +17,7 @@ const firstAdmission = createBench("Source duplication: first admission");
 
 for (const policy of ["allow", "ignore", "replace"] as const) {
 	const type = createSourceType({ duplication: { policy } });
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	let added: Source<undefined> | undefined;
 
 	firstAdmission.add(
@@ -38,7 +39,7 @@ for (const policy of ["allow", "ignore", "replace"] as const) {
 	const type = createSourceType({
 		duplication: { policy: "reconcile", reconcile() {} },
 	});
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	let added: Source<undefined> | undefined;
 
 	firstAdmission.add(
@@ -62,7 +63,7 @@ const conflictingAdmission = createBench("Source duplication: conflicting admiss
 
 {
 	const type = createSourceType({ duplication: { policy: "allow" } });
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	let added: Source<undefined> | undefined;
 
 	conflictingAdmission.add(
@@ -88,7 +89,7 @@ const conflictingAdmission = createBench("Source duplication: conflicting admiss
 
 {
 	const type = createSourceType({ duplication: { policy: "ignore" } });
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 
 	addBatchedTask(
 		conflictingAdmission,
@@ -111,7 +112,7 @@ const conflictingAdmission = createBench("Source duplication: conflicting admiss
 
 {
 	const type = createSourceType({ duplication: { policy: "replace" } });
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 
 	conflictingAdmission.add(
 		"replace",
@@ -134,7 +135,7 @@ const conflictingAdmission = createBench("Source duplication: conflicting admiss
 	const type = createSourceType({
 		duplication: { policy: "reconcile", reconcile() {} },
 	});
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 
 	addBatchedTask(
 		conflictingAdmission,
@@ -192,7 +193,7 @@ const keyedAdmission = createBench("Source duplication: keyed admission");
 
 {
 	const type = createSourceType({ duplication: { policy: "ignore" } });
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 
 	addBatchedTask(
 		keyedAdmission,
@@ -215,7 +216,7 @@ const keyedAdmission = createBench("Source duplication: keyed admission");
 
 {
 	const type = createSourceType({ duplication: { policy: "ignore" } });
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	let added: Source<undefined> | undefined;
 
 	keyedAdmission.add(
@@ -250,7 +251,7 @@ for (const selector of ["oldest", "newest", "lowest", "highest"] as const) {
 	const type = createSourceType<number>({
 		duplication: group.member({ rank: (value) => value }),
 	});
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	let value = 8;
 
 	groupedAdmission.add(
@@ -279,7 +280,7 @@ for (const selector of ["oldest", "newest", "lowest", "highest"] as const) {
 			replaceIf: (existing, incoming) => incoming > existing,
 		}),
 	});
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 
 	addBatchedTask(
 		groupedAdmission,
@@ -308,7 +309,7 @@ for (const selector of ["oldest", "newest", "lowest", "highest"] as const) {
 			replaceIf: (existing, incoming) => incoming > existing,
 		}),
 	});
-	const agent = new AgentState(undefined);
+	const agent = new AgentState(undefined, benchmarkReporter);
 	let value = 100;
 
 	groupedAdmission.add(
@@ -418,7 +419,7 @@ const allowBucketScaling = createBench(
 for (const size of [100, 1_000, 10_000] as const) {
 	{
 		const type = createSourceType({ duplication: { policy: "allow" } });
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, benchmarkReporter);
 
 		allowBucketScaling.add(
 			`add / ${size} occupants`,
@@ -437,7 +438,7 @@ for (const size of [100, 1_000, 10_000] as const) {
 
 	{
 		const type = createSourceType({ duplication: { policy: "allow" } });
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, benchmarkReporter);
 
 		allowBucketScaling.add(
 			`remove / ${size} occupants`,

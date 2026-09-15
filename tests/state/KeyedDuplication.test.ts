@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentState, defineDescriptorType, defineSourceType } from "../src/index.js";
+import { AgentState, defineDescriptorType, defineSourceType, testReporter } from "../src/index.js";
 
 describe("keyed source duplication", () => {
 	it("isolates conflicts by key", () => {
@@ -9,7 +9,7 @@ describe("keyed source duplication", () => {
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 
 		const firstA = agent.addSource(SourceType, 1, { key: "a" })!;
 		const firstB = agent.addSource(SourceType, 2, { key: "b" })!;
@@ -28,7 +28,7 @@ describe("keyed source duplication", () => {
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const firstA = agent.addSource(SourceType, 1, { key: "a" })!;
 		const firstB = agent.addSource(SourceType, 2, { key: "b" })!;
 
@@ -47,7 +47,7 @@ describe("keyed source duplication", () => {
 			duplication: { policy: "replace" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		const firstA = agent.addSource(SourceType, 1, { key: "a" })!;
 		const firstB = agent.addSource(SourceType, 2, { key: "b" })!;
 
@@ -70,7 +70,7 @@ describe("keyed descriptor duplication", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -108,7 +108,7 @@ describe("keyed descriptor duplication", () => {
 			name: "DescriptorKeyForwardingDescriptor",
 			source: OutputType,
 		});
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data.value, { key: data.sourceKey });
 			if (!source) return undefined;

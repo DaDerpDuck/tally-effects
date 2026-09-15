@@ -14,6 +14,7 @@ import {
 	type Registrable,
 	type Registry,
 	type ResolvedPropertyDefinition,
+	testReporter,
 } from "../src/index.js";
 
 interface CustomModifier extends Modifier<object | undefined> {
@@ -128,7 +129,7 @@ describe("custom property", () => {
 	});
 
 	it("agent resolves custom property correctly", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.get(Custom)).toEqual({ foo: "bar" });
 
 		const source1 = agent.addSource(CustomSource, true)!;
@@ -137,7 +138,7 @@ describe("custom property", () => {
 	});
 
 	it("agent resolves undefined property correctly", () => {
-		const agent = new AgentState(undefined);
+		const agent = new AgentState(undefined, testReporter);
 		expect(agent.get(Custom)).toEqual({ foo: "bar" });
 
 		const source1 = agent.addSource(CustomSource, false)!;

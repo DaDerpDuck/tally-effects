@@ -1,4 +1,3 @@
-import { throwCallbackErrors } from "../util/CallbackSet.js";
 import type { AdmissionPlan } from "./AdmissionPlan.js";
 import type { AdmissionRuntime } from "./AdmissionRuntime.js";
 import { AdmissionTransaction } from "./AdmissionTransaction.js";
@@ -206,11 +205,15 @@ export class AdmissionCoordinator {
 			try {
 				if (state.kind === "live") state.candidate.destroy();
 				else if (state.kind === "pending") state.admission.cancel();
-			} catch (e) {
-				errors.push(e);
+			} catch (error) {
+				errors.push(error);
 			}
 		}
-		throwCallbackErrors(errors, "Error while destroying evictions");
+		if (errors.length > 0) {
+			const first = errors[0];
+			const message = first instanceof Error ? first.message : "Failed to destroy evictions";
+			throw new AggregateError(errors, message);
+		}
 	}
 
 	private domainOf(type: AnyDuplicableType): object {

@@ -4,6 +4,7 @@ import {
 	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
+	testReporter,
 } from "../src/index.js";
 
 type OrderedData = {
@@ -57,7 +58,7 @@ const CounterBumpSource = defineSourceType<undefined>({
 
 describe("deterministic Descriptor ordering integration", () => {
 	it("makes a derived Source inherit its replicated Descriptor's authoritative order", () => {
-		const agent = new AgentState({});
+		const agent = new AgentState({}, testReporter);
 		agent.registerDescriptorHandler(OrderedDescriptor, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
