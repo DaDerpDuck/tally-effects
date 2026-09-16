@@ -68,19 +68,13 @@ export class AgentState<TEntity> {
 			this.sources
 		);
 
-		this.replicationCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "replication-emitted",
-			},
-			(event) => ({
-				operation: replicationOperationByEventKind[event.event.kind],
-			})
-		);
-		this.destroyCallbacks = new CallbackSet(reporter, {
+		this.replicationCallbacks = new CallbackSet(reporter, (event) => ({
+			operation: replicationOperationByEventKind[event.event.kind],
+			event: "replication-emitted",
+		}));
+		this.destroyCallbacks = new CallbackSet(reporter, () => ({
 			operation: "destroy",
-		});
+		}));
 
 		this.onSourceAdded((source) => this.forwardSourceReplication(source, "added"));
 		this.onSourceUpdated((source) => this.forwardSourceReplication(source, "updated"));

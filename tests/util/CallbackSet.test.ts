@@ -5,10 +5,10 @@ import { CallbackSet } from "../../src/tally/util/CallbackSet.js";
 function createCallbacks() {
 	const reports: TallyReport[] = [];
 	const reporter: TallyReporter = { report: (report) => reports.push(report) };
-	const callbacks = new CallbackSet<[]>(reporter, {
+	const callbacks = new CallbackSet<[]>(reporter, () => ({
 		operation: "update",
 		event: "source-updated",
-	});
+	}));
 	return { callbacks, reports };
 }
 

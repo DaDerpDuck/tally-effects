@@ -1,9 +1,4 @@
-import {
-	tallyReport,
-	type TallyReport,
-	type TallyReporter,
-	type TallyReportSubject,
-} from "../core/TallyReporter.js";
+import { tallyReport, type TallyReport, type TallyReporter } from "../core/TallyReporter.js";
 import type { Disconnect } from "./Disconnect.js";
 
 interface Subscription<TArgs extends readonly unknown[]> {
@@ -20,8 +15,7 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 
 	constructor(
 		private readonly reporter: TallyReporter,
-		private readonly context: CallbackErrorContext,
-		private readonly contextProvider?: (...args: TArgs) => Partial<CallbackErrorContext>
+		private readonly contextProvider: (...args: TArgs) => CallbackErrorContext
 	) {}
 
 	isEmpty(): boolean {
@@ -46,8 +40,7 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 				subscription.callback(...args);
 			} catch (callbackError) {
 				tallyReport(this.reporter, {
-					...this.context,
-					...this.contextProvider?.(...args),
+					...this.contextProvider(...args),
 					code: "callback-failed",
 					error: callbackError,
 				});

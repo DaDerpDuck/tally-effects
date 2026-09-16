@@ -40,30 +40,21 @@ export class SourceManager {
 		private readonly counter: IdCounter,
 		private readonly admission: AdmissionCoordinator
 	) {
-		this.sourceAddedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "admit",
-				event: "source-added",
-			},
-			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
-		this.sourceRemovedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "destroy",
-				event: "source-removed",
-			},
-			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
-		this.sourceUpdatedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "source-updated",
-			},
-			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
+		this.sourceAddedCallbacks = new CallbackSet(reporter, (source) => ({
+			operation: "admit",
+			event: "source-added",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
+		this.sourceRemovedCallbacks = new CallbackSet(reporter, (source) => ({
+			operation: "destroy",
+			event: "source-removed",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
+		this.sourceUpdatedCallbacks = new CallbackSet(reporter, (source) => ({
+			operation: "update",
+			event: "source-updated",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
 	}
 
 	addSource<TData>(
@@ -119,14 +110,14 @@ export class SourceManager {
 	onPropertyChanged<T>(property: Property<T>, callback: PropertyCallback<T>): Disconnect {
 		let callbacks = this.propertyCallbacks.get(property);
 		if (!callbacks) {
-			callbacks = new CallbackSet<[unknown, unknown]>(this.reporter, {
+			callbacks = new CallbackSet<[unknown, unknown]>(this.reporter, () => ({
 				operation: "resolve",
 				event: "property-changed",
 				subject: {
 					kind: "property",
 					name: property.name,
 				},
-			});
+			}));
 			this.propertyCallbacks.set(property, callbacks);
 		}
 

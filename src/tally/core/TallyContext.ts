@@ -56,82 +56,52 @@ export class TallyContext<TEntity> {
 	private destroyed = false;
 
 	constructor(private readonly reporter: TallyReporter) {
-		this.sourceAddedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "admit",
-				event: "source-added",
+		this.sourceAddedCallbacks = new CallbackSet(reporter, (_, source) => ({
+			operation: "admit",
+			event: "source-added",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
+		this.sourceRemovedCallbacks = new CallbackSet(reporter, (_, source) => ({
+			operation: "destroy",
+			event: "source-removed",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
+		this.sourceUpdatedCallbacks = new CallbackSet(reporter, (_, source) => ({
+			operation: "update",
+			event: "source-updated",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
+		this.descriptorAddedCallbacks = new CallbackSet(reporter, (_, descriptor) => ({
+			operation: "admit",
+			event: "descriptor-added",
+			subject: {
+				kind: "descriptor",
+				type: descriptor.type.name,
+				id: descriptor.id,
 			},
-			(_, source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
-		this.sourceRemovedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "destroy",
-				event: "source-removed",
+		}));
+		this.descriptorRemovedCallbacks = new CallbackSet(reporter, (_, descriptor) => ({
+			operation: "destroy",
+			event: "descriptor-removed",
+			subject: {
+				kind: "descriptor",
+				type: descriptor.type.name,
+				id: descriptor.id,
 			},
-			(_, source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
-		this.sourceUpdatedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "source-updated",
+		}));
+		this.descriptorUpdatedCallbacks = new CallbackSet(reporter, (_, descriptor) => ({
+			operation: "update",
+			event: "descriptor-updated",
+			subject: {
+				kind: "descriptor",
+				type: descriptor.type.name,
+				id: descriptor.id,
 			},
-			(_, source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
-		this.descriptorAddedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "admit",
-				event: "descriptor-added",
-			},
-			(_, descriptor) => ({
-				subject: {
-					kind: "descriptor",
-					type: descriptor.type.name,
-					id: descriptor.id,
-				},
-			})
-		);
-		this.descriptorRemovedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "destroy",
-				event: "descriptor-removed",
-			},
-			(_, descriptor) => ({
-				subject: {
-					kind: "descriptor",
-					type: descriptor.type.name,
-					id: descriptor.id,
-				},
-			})
-		);
-		this.descriptorUpdatedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "descriptor-updated",
-			},
-			(_, descriptor) => ({
-				subject: {
-					kind: "descriptor",
-					type: descriptor.type.name,
-					id: descriptor.id,
-				},
-			})
-		);
-		this.replicationCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "replication-emitted",
-			},
-			(_, event) => ({
-				operation: replicationOperationByEventKind[event.event.kind],
-			})
-		);
+		}));
+		this.replicationCallbacks = new CallbackSet(reporter, (_, event) => ({
+			operation: replicationOperationByEventKind[event.event.kind],
+			event: "replication-emitted",
+		}));
 	}
 
 	get sources(): ReadonlyMap<string, AnySourceType> {
