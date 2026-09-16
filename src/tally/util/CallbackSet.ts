@@ -24,6 +24,10 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 		private readonly contextProvider?: (...args: TArgs) => Partial<CallbackErrorContext>
 	) {}
 
+	isEmpty(): boolean {
+		return this.subscriptions.size === 0;
+	}
+
 	add(callback: (...args: TArgs) => void): Disconnect {
 		const subscription: Subscription<TArgs> = { callback, connected: true };
 		this.subscriptions.add(subscription);

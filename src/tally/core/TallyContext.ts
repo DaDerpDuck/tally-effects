@@ -1,7 +1,5 @@
 import type { AnyProperty } from "../property/Property.js";
-import { serializeDescriptor } from "../replication/descriptor/ReplicatedDescriptor.js";
 import type { ReplicationEvent } from "../replication/ReplicationEvent.js";
-import { serializeSource } from "../replication/source/ReplicatedSource.js";
 import type { AnyDescriptor } from "../state/descriptor/Descriptor.js";
 import type {
 	AnyDescriptorHandler,
@@ -15,7 +13,7 @@ import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import { AgentState } from "./AgentState.js";
-import { tallyReport, type TallyReporter, type TallyReportOperation } from "./TallyReporter.js";
+import type { TallyReporter, TallyReportOperation } from "./TallyReporter.js";
 
 type ReplicationCallback<TEntity> = (agent: AgentState<TEntity>, event: ReplicationEvent) => void;
 type SourceCallback<TEntity> = (agent: AgentState<TEntity>, source: Source) => void;
@@ -160,102 +158,31 @@ export class TallyContext<TEntity> {
 		);
 		const disconnectSet = getOrInsertComputed(this.agentConnections, agent, () => new Set());
 		disconnectSet.add(
-			agent.onSourceAdded((source) => {
-				this.sourceAddedCallbacks.emit(agent, source);
-				if (source.type.replication && source.provenance.domain === "local")
-					this.forwardReplication(
-						"admit",
-						"source-added",
-						() => ({
-							target: "source",
-							event: { kind: "added", source: serializeSource(source) },
-						}),
-						agent
-					);
-			})
+			agent.onSourceAdded((source) => this.sourceAddedCallbacks.emit(agent, source))
 		);
 		disconnectSet.add(
-			agent.onSourceRemoved((source) => {
-				this.sourceRemovedCallbacks.emit(agent, source);
-				if (source.type.replication && source.provenance.domain === "local")
-					this.forwardReplication(
-						"destroy",
-						"source-removed",
-						() => ({
-							target: "source",
-							event: { kind: "removed", id: source.id },
-						}),
-						agent
-					);
-			})
+			agent.onSourceRemoved((source) => this.sourceRemovedCallbacks.emit(agent, source))
 		);
 		disconnectSet.add(
-			agent.onSourceUpdated((source) => {
-				this.sourceUpdatedCallbacks.emit(agent, source);
-				if (source.type.replication && source.provenance.domain === "local")
-					this.forwardReplication(
-						"update",
-						"source-updated",
-						() => ({
-							target: "source",
-							event: {
-								kind: "updated",
-								id: source.id,
-								data: source.type.replication!.serialize(source.get()),
-							},
-						}),
-						agent
-					);
-			})
+			agent.onSourceUpdated((source) => this.sourceUpdatedCallbacks.emit(agent, source))
 		);
 		disconnectSet.add(
-			agent.onDescriptorAdded((descriptor) => {
-				this.descriptorAddedCallbacks.emit(agent, descriptor);
-				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.forwardReplication(
-						"admit",
-						"descriptor-added",
-						() => ({
-							target: "descriptor",
-							event: { kind: "added", descriptor: serializeDescriptor(descriptor) },
-						}),
-						agent
-					);
-			})
+			agent.onDescriptorAdded((descriptor) =>
+				this.descriptorAddedCallbacks.emit(agent, descriptor)
+			)
 		);
 		disconnectSet.add(
-			agent.onDescriptorRemoved((descriptor) => {
-				this.descriptorRemovedCallbacks.emit(agent, descriptor);
-				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.forwardReplication(
-						"destroy",
-						"descriptor-removed",
-						() => ({
-							target: "descriptor",
-							event: { kind: "removed", id: descriptor.id },
-						}),
-						agent
-					);
-			})
+			agent.onDescriptorRemoved((descriptor) =>
+				this.descriptorRemovedCallbacks.emit(agent, descriptor)
+			)
 		);
 		disconnectSet.add(
-			agent.onDescriptorUpdated((descriptor) => {
-				this.descriptorUpdatedCallbacks.emit(agent, descriptor);
-				if (descriptor.type.replication && descriptor.provenance.domain === "local")
-					this.forwardReplication(
-						"update",
-						"descriptor-updated",
-						() => ({
-							target: "descriptor",
-							event: {
-								kind: "updated",
-								id: descriptor.id,
-								data: descriptor.type.replication!.serialize(descriptor.get()),
-							},
-						}),
-						agent
-					);
-			})
+			agent.onDescriptorUpdated((descriptor) =>
+				this.descriptorUpdatedCallbacks.emit(agent, descriptor)
+			)
+		);
+		disconnectSet.add(
+			agent.onReplicationEmit((event) => this.replicationCallbacks.emit(agent, event))
 		);
 		disconnectSet.add(
 			agent.onDestroy(() => {
@@ -355,29 +282,5 @@ export class TallyContext<TEntity> {
 
 	private assertAlive() {
 		if (this.destroyed) throw new Error("TallyContext was destroyed");
-	}
-
-	private forwardReplication(
-		operation: "admit" | "destroy" | "update",
-		event:
-			| "descriptor-added"
-			| "descriptor-removed"
-			| "descriptor-updated"
-			| "source-added"
-			| "source-removed"
-			| "source-updated",
-		serialize: () => ReplicationEvent,
-		agent: AgentState<TEntity>
-	) {
-		try {
-			this.replicationCallbacks.emit(agent, serialize());
-		} catch (error) {
-			tallyReport(this.reporter, {
-				code: "replication-serialization-failed",
-				operation,
-				event,
-				error,
-			});
-		}
 	}
 }

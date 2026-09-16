@@ -8,7 +8,6 @@ import {
 	SourceReceiver,
 	type ReplicationEvent,
 	type SourceType,
-	TallyContext,
 	testReporter,
 } from "../src/index.js";
 
@@ -46,32 +45,24 @@ function createReplicationFixture({
 	sourceTypes = [],
 }: ReplicationFixtureOptions = {}) {
 	const allSourceTypes = [ValueSource, ...sourceTypes];
-	const createTally = () => {
-		const tally = new TallyContext<undefined>(testReporter);
-		tally.register(Value);
-		for (const sourceType of allSourceTypes) tally.register(sourceType);
-		return tally;
-	};
-
-	const serverTally = createTally();
-	const serverAgent = serverTally.createAgentState(undefined);
-	const clientTally = createTally();
-	const clientAgent = clientTally.createAgentState(undefined);
-	const receiver = new SourceReceiver(clientAgent, (name) => clientTally.sources.get(name));
+	const sourceTypesByName = new Map(
+		allSourceTypes.map((sourceType) => [sourceType.name, sourceType])
+	);
+	const serverAgent = new AgentState(undefined, testReporter);
+	const clientAgent = new AgentState(undefined, testReporter);
+	const receiver = new SourceReceiver(clientAgent, (name) => sourceTypesByName.get(name));
 	const emittedEvents: ReplicationEvent[] = [];
 
-	serverTally.onReplicationEmit((_, event) => {
+	serverAgent.onReplicationEmit((event) => {
 		emittedEvents.push(event);
 		if (relayEvents) receiver.apply([event]);
 	});
 
 	return {
 		clientAgent,
-		clientTally,
 		emittedEvents,
 		receiver,
 		serverAgent,
-		serverTally,
 	};
 }
 
@@ -323,10 +314,10 @@ describe("Source replication snapshots", () => {
 			priority: 100,
 			contribute: (data) => [Value.add(data.value)],
 		});
-		const { clientAgent, clientTally, receiver, serverAgent, serverTally } =
-			createReplicationFixture({ relayEvents: false });
-		clientTally.register(LocalSource);
-		serverTally.register(LocalSource);
+		const { clientAgent, receiver, serverAgent } = createReplicationFixture({
+			relayEvents: false,
+			sourceTypes: [LocalSource],
+		});
 		serverAgent.addSource(ValueSource, { value: 5 });
 		serverAgent.addSource(LocalSource, { value: 100 });
 

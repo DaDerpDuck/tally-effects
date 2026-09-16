@@ -10,6 +10,9 @@
   duplication domains with optional stack limits and ranked replacement selection.
 - Added duplication keys to replicated Source and Descriptor state so receivers preserve
   authoritative key buckets during live-event and snapshot reconstruction.
+- Added `AgentState.onReplicationEmit()`. `TallyContext`
+  continues to forward events from the AgentStates it creates as a convenience for shared
+  configuration and observation.
 
 ### Changed
 

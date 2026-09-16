@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+	AgentState,
 	BooleanProperty,
 	defineBooleanProperty,
 	defineDescriptorType,
@@ -30,6 +31,37 @@ function createContextFixture(reporter = testReporter) {
 }
 
 describe("tally context source events", () => {
+	it("forwards replication events emitted by its agents", () => {
+		const ReplicatedSource = defineSourceType<number>({
+			name: "ContextForwardedReplicationSource",
+			priority: 100,
+			contribute: () => [],
+			replication: {
+				serialize: (value) => value,
+				deserialize: (value) => value as number,
+			},
+		});
+		const { agent, tally } = createContextFixture();
+		const callback = vi.fn();
+		tally.onReplicationEmit(callback);
+
+		agent.addSource(ReplicatedSource, 5);
+
+		expect(callback).toHaveBeenCalledExactlyOnceWith(agent, {
+			target: "source",
+			event: {
+				kind: "added",
+				source: {
+					id: 0,
+					type: ReplicatedSource.name,
+					priority: 100,
+					key: undefined,
+					data: 5,
+				},
+			},
+		});
+	});
+
 	it("forwards source additions", () => {
 		const { agent, tally } = createContextFixture();
 		const callback = vi.fn();
@@ -329,7 +361,7 @@ describe("tally context registry", () => {
 	});
 });
 
-describe("tally context replication emission", () => {
+describe("agent state replication emission", () => {
 	const Property = defineNumberProperty({ name: "Property", defaultValue: 0 });
 	const PropertySource = defineSourceType<{ value: number }>({
 		name: "PropertySource",
@@ -344,20 +376,15 @@ describe("tally context replication emission", () => {
 		},
 	});
 
-	interface Player {
-		name: string;
-	}
-
 	function createReplicationFixture() {
-		const tally = new TallyContext<Player>(testReporter);
-		const agentState = tally.createAgentState({ name: "Bob" });
-		const callback = vi.fn<(agent: typeof agentState, event: ReplicationEvent) => void>();
-		tally.onReplicationEmit(callback);
-		return { agent: agentState, callback, tally };
+		const agent = new AgentState(undefined, testReporter);
+		const callback = vi.fn<(event: ReplicationEvent) => void>();
+		agent.onReplicationEmit(callback);
+		return { agent, callback };
 	}
 
 	function emittedEvents(callback: ReturnType<typeof createReplicationFixture>["callback"]) {
-		return callback.mock.calls.map(([, event]) => event);
+		return callback.mock.calls.map(([event]) => event);
 	}
 
 	it("emits added events with serialized source state", () => {
@@ -449,11 +476,9 @@ describe("tally context replication emission", () => {
 		] satisfies ReplicationEvent[]);
 	});
 
-	it("reports replication serialization failures through the context reporter", () => {
-		const { reporter: contextReporter, reports } = createTestReporter();
-		const { reporter: agentReporter, reports: agentReports } = createTestReporter();
-		const tally = new TallyContext<undefined>(contextReporter);
-		const agent = tally.createAgentState(undefined, agentReporter);
+	it("reports replication serialization failures through the agent reporter", () => {
+		const { reporter, reports } = createTestReporter();
+		const agent = new AgentState(undefined, reporter);
 		const ThrowingReplicationSource = defineSourceType<number>({
 			name: "ThrowingReplicationSerialization",
 			priority: 100,
@@ -466,9 +491,9 @@ describe("tally context replication emission", () => {
 			},
 		});
 
+		agent.onReplicationEmit(() => {});
 		expect(() => agent.addSource(ThrowingReplicationSource, 1)).not.toThrow();
 		expect(agent.getSources(ThrowingReplicationSource).size).toBe(1);
-		expect(agentReports).toEqual([]);
 		expect(reports).toEqual([
 			expect.objectContaining({
 				error: new Error("serialization failed"),
