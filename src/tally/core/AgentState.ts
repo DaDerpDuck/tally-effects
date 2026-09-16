@@ -1,4 +1,7 @@
 import { type Property } from "../property/Property.js";
+import { serializeDescriptor } from "../replication/descriptor/ReplicatedDescriptor.js";
+import type { ReplicationEvent } from "../replication/ReplicationEvent.js";
+import { serializeSource } from "../replication/source/ReplicatedSource.js";
 import { AdmissionCoordinator } from "../state/AdmissionCoordinator.js";
 import type { AnyDescriptor, Descriptor } from "../state/descriptor/Descriptor.js";
 import type { DescriptorHandler } from "../state/descriptor/DescriptorHandler.js";
@@ -14,9 +17,16 @@ import type { Disconnect } from "../util/Disconnect.js";
 import { IdCounter } from "../util/IdCounter.js";
 import { DescriptorManager, type DescriptorCallback } from "./DescriptorManager.js";
 import { SourceManager, type PropertyCallback, type SourceCallback } from "./SourceManager.js";
-import type { TallyReporter } from "./TallyReporter.js";
+import { tallyReport, type TallyReporter, type TallyReportOperation } from "./TallyReporter.js";
 
-export type DestroyCallback = () => void;
+const replicationOperationByEventKind = {
+	added: "admit",
+	updated: "update",
+	removed: "destroy",
+} as const satisfies Record<ReplicationEvent["event"]["kind"], TallyReportOperation>;
+
+type DestroyCallback = () => void;
+type ReplicationCallback = (event: ReplicationEvent) => void;
 
 /**
  * Holds the runtime Tally state for a single entity.
@@ -33,6 +43,7 @@ export class AgentState<TEntity> {
 	private readonly sources: SourceManager;
 	private readonly descriptors: DescriptorManager<TEntity>;
 
+	private readonly replicationCallbacks: CallbackSet<[ReplicationEvent]>;
 	private readonly destroyCallbacks: CallbackSet<[]>;
 
 	private destroyed = false;
@@ -57,9 +68,26 @@ export class AgentState<TEntity> {
 			this.sources
 		);
 
-		this.destroyCallbacks = new CallbackSet(reporter, {
+		this.replicationCallbacks = new CallbackSet(reporter, (event) => ({
+			operation: replicationOperationByEventKind[event.event.kind],
+			event: "replication-emitted",
+		}));
+		this.destroyCallbacks = new CallbackSet(reporter, () => ({
 			operation: "destroy",
-		});
+		}));
+
+		this.onSourceAdded((source) => this.forwardSourceReplication(source, "added"));
+		this.onSourceUpdated((source) => this.forwardSourceReplication(source, "updated"));
+		this.onSourceRemoved((source) => this.forwardSourceReplication(source, "removed"));
+		this.onDescriptorAdded((descriptor) =>
+			this.forwardDescriptorReplication(descriptor, "added")
+		);
+		this.onDescriptorUpdated((descriptor) =>
+			this.forwardDescriptorReplication(descriptor, "updated")
+		);
+		this.onDescriptorRemoved((descriptor) =>
+			this.forwardDescriptorReplication(descriptor, "removed")
+		);
 	}
 
 	/**
@@ -221,6 +249,16 @@ export class AgentState<TEntity> {
 		return this.descriptors.onDescriptorUpdated(callback);
 	}
 
+	/**
+	 * Fires portable lifecycle events for locally authoritative replicated Sources
+	 * and Descriptors. Applications own transport and should route each event to
+	 * the corresponding receiver.
+	 */
+	onReplicationEmit(callback: ReplicationCallback): Disconnect {
+		if (this.destroyed) return () => {};
+		return this.replicationCallbacks.add(callback);
+	}
+
 	onDestroy(callback: DestroyCallback): Disconnect {
 		if (this.destroyed) return () => {};
 		return this.destroyCallbacks.add(callback);
@@ -250,9 +288,99 @@ export class AgentState<TEntity> {
 		this.destroyAllDescriptors();
 
 		this.destroyCallbacks.clear();
+		this.replicationCallbacks.clear();
 	}
 
 	private assertAlive() {
 		if (this.destroyed) throw new Error("AgentState was destroyed");
+	}
+
+	private forwardSourceReplication(
+		source: Source<unknown>,
+		operation: "added" | "updated" | "removed"
+	) {
+		if (!source.type.replication || source.provenance.domain !== "local") return;
+		if (this.replicationCallbacks.isEmpty()) return;
+
+		switch (operation) {
+			case "added":
+				this.forwardReplication("admit", "source-added", () => ({
+					target: "source",
+					event: { kind: "added", source: serializeSource(source) },
+				}));
+				break;
+			case "updated":
+				this.forwardReplication("update", "source-updated", () => ({
+					target: "source",
+					event: {
+						kind: "updated",
+						id: source.id,
+						data: source.type.replication!.serialize(source.get()),
+					},
+				}));
+				break;
+			case "removed":
+				this.forwardReplication("destroy", "source-removed", () => ({
+					target: "source",
+					event: { kind: "removed", id: source.id },
+				}));
+				break;
+		}
+	}
+
+	private forwardDescriptorReplication(
+		descriptor: AnyDescriptor,
+		operation: "added" | "updated" | "removed"
+	) {
+		if (!descriptor.type.replication || descriptor.provenance.domain !== "local") return;
+		if (this.replicationCallbacks.isEmpty()) return;
+
+		switch (operation) {
+			case "added":
+				this.forwardReplication("admit", "descriptor-added", () => ({
+					target: "descriptor",
+					event: { kind: "added", descriptor: serializeDescriptor(descriptor) },
+				}));
+				break;
+			case "updated":
+				this.forwardReplication("update", "descriptor-updated", () => ({
+					target: "descriptor",
+					event: {
+						kind: "updated",
+						id: descriptor.id,
+						data: descriptor.type.replication!.serialize(descriptor.get()),
+					},
+				}));
+				break;
+			case "removed":
+				this.forwardReplication("destroy", "descriptor-removed", () => ({
+					target: "descriptor",
+					event: { kind: "removed", id: descriptor.id },
+				}));
+				break;
+		}
+	}
+
+	private forwardReplication(
+		operation: "admit" | "destroy" | "update",
+		event:
+			| "descriptor-added"
+			| "descriptor-removed"
+			| "descriptor-updated"
+			| "source-added"
+			| "source-removed"
+			| "source-updated",
+		serialize: () => ReplicationEvent
+	) {
+		try {
+			this.replicationCallbacks.emit(serialize());
+		} catch (error) {
+			tallyReport(this.reporter, {
+				code: "replication-serialization-failed",
+				operation,
+				event,
+				error,
+			});
+		}
 	}
 }

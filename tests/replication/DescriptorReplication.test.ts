@@ -10,7 +10,6 @@ import {
 	type ReplicationDefinition,
 	type ReplicationEvent,
 	serializeDescriptor,
-	TallyContext,
 	testReporter,
 } from "../src/index.js";
 
@@ -60,10 +59,10 @@ const ValueDescriptor = defineDescriptorType<DescriptorData, SourceData>({
 });
 
 function registerHandler(
-	tally: TallyContext<undefined>,
+	agent: AgentState<undefined>,
 	descriptorType: DescriptorType<DescriptorData, SourceData>
 ) {
-	tally.registerDescriptorHandler(descriptorType, (ctx, data) => {
+	agent.registerDescriptorHandler(descriptorType, (ctx, data) => {
 		const source = ctx.addSource({ value: data.value }, { key: data.sourceKey });
 		if (!source) return undefined;
 
@@ -89,27 +88,19 @@ function createReplicationFixture({
 	relayEvents = true,
 }: ReplicationFixtureOptions = {}) {
 	const allDescriptorTypes = [ValueDescriptor, ...descriptorTypes];
-	const createTally = () => {
-		const tally = new TallyContext<undefined>(testReporter);
-		tally.register(Value);
-		tally.register(DescriptorSource);
-		for (const descriptorType of allDescriptorTypes) {
-			tally.register(descriptorType);
-			registerHandler(tally, descriptorType);
-		}
-		return tally;
-	};
-
-	const serverTally = createTally();
-	const serverAgent = serverTally.createAgentState(undefined);
-	const clientTally = createTally();
-	const clientAgent = clientTally.createAgentState(undefined);
-	const receiver = new DescriptorReceiver(clientAgent, (name) =>
-		clientTally.descriptors.get(name)
+	const descriptorTypesByName = new Map(
+		allDescriptorTypes.map((descriptorType) => [descriptorType.name, descriptorType])
 	);
+	const serverAgent = new AgentState(undefined, testReporter);
+	const clientAgent = new AgentState(undefined, testReporter);
+	for (const descriptorType of allDescriptorTypes) {
+		registerHandler(serverAgent, descriptorType);
+		registerHandler(clientAgent, descriptorType);
+	}
+	const receiver = new DescriptorReceiver(clientAgent, (name) => descriptorTypesByName.get(name));
 	const emittedEvents: ReplicationEvent[] = [];
 
-	serverTally.onReplicationEmit((_, event) => {
+	serverAgent.onReplicationEmit((event) => {
 		emittedEvents.push(event);
 		if (relayEvents) receiver.apply([event]);
 	});

@@ -77,9 +77,9 @@ final value
 `AgentState` and `TallyContext` require a host-provided `TallyReporter`:
 
 ```ts
-import { TallyContext } from "tally-effects";
+import { AgentState } from "tally-effects";
 
-const tally = new TallyContext(reporter);
+const agent = new AgentState(player, reporter);
 ```
 
 Tally invokes callbacks synchronously and remains reentrant, but observation callbacks are
@@ -207,10 +207,11 @@ const ProximityFear = defineDescriptorType<
 });
 ```
 
-Then on a TallyContext or AgentState object, a handler can be injected for that DescriptorType.
+Register a handler on each `AgentState` that needs to create the Descriptor. A
+`TallyContext` can also register handlers once and apply them to the AgentStates it creates.
 
 ```ts
-tally.registerDescriptorHandler(
+agent.registerDescriptorHandler(
     ProximityFear,
     (ctx, data) => {
         const source = ctx.addSource(
@@ -235,29 +236,38 @@ tally.registerDescriptorHandler(
 );
 ```
 
-Descriptor handlers should be registered before creating AgentStates.
+Register descriptor handlers before adding their Descriptor. When using a `TallyContext`,
+register them before creating AgentStates so each agent receives the expected handler.
 
 ### Replication
 
-Tally emits replication state/events, but does not own your networking layer. Developers are expected to implement how to transport the data.
+Each `AgentState` emits replication events, but Tally does not own your networking layer.
+Developers are expected to implement how to transport the data. `TallyContext` forwards events
+from the AgentStates it creates as a convenience when one context owns multiple agents.
 
-Tally does offer Receivers for accepting replication events.
+Tally does offer receivers for accepting replication events.
+
+This keeps actor-local state independent: an actor can own one `AgentState`, subscribe with
+`agent.onReplicationEmit()`, and send that event across its actor boundary. The receiving actor
+recreates the matching type definitions and handlers locally, then applies the event through its
+`SourceReceiver` or `DescriptorReceiver`.
 
 When replication is enabled, Source and Descriptor duplication keys are serialized and
 reconstructed with their state. Payloads without a key are treated as belonging to the
 unkeyed bucket, allowing pre-key snapshots and events to remain usable.
 
 The replication flow looks like:
+
 ```
-Server AgentState
+Authoritative AgentState
       ↓
-Tally replication event
+agent.onReplicationEmit()
       ↓
 your transport
       ↓
 SourceReceiver / DescriptorReceiver
       ↓
-Client AgentState
+Receiving AgentState
 ```
 
 ## Status

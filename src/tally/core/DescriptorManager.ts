@@ -50,36 +50,21 @@ export class DescriptorManager<TEntity> {
 		private readonly admission: AdmissionCoordinator,
 		private readonly sources: SourceManager
 	) {
-		this.descriptorAddedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "admit",
-				event: "descriptor-added",
-			},
-			(descriptor) => ({
-				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
-			})
-		);
-		this.descriptorRemovedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "destroy",
-				event: "descriptor-removed",
-			},
-			(descriptor) => ({
-				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
-			})
-		);
-		this.descriptorUpdatedCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "descriptor-updated",
-			},
-			(descriptor) => ({
-				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
-			})
-		);
+		this.descriptorAddedCallbacks = new CallbackSet(reporter, (descriptor) => ({
+			operation: "admit",
+			event: "descriptor-added",
+			subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+		}));
+		this.descriptorRemovedCallbacks = new CallbackSet(reporter, (descriptor) => ({
+			operation: "destroy",
+			event: "descriptor-removed",
+			subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+		}));
+		this.descriptorUpdatedCallbacks = new CallbackSet(reporter, (descriptor) => ({
+			operation: "update",
+			event: "descriptor-updated",
+			subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+		}));
 	}
 
 	addDescriptor<TDescriptorData, TSourceData>(

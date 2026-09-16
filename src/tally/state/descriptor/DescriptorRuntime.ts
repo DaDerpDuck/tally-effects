@@ -60,26 +60,16 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		this.instance = new DescriptorInstance(identity, this);
 
 		const reporter = host.getReporter();
-		this.updateCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "descriptor-updated",
-			},
-			(descriptor) => ({
-				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
-			})
-		);
-		this.destroyCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "destroy",
-				event: "descriptor-removed",
-			},
-			(descriptor) => ({
-				subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
-			})
-		);
+		this.updateCallbacks = new CallbackSet(reporter, (descriptor) => ({
+			operation: "update",
+			event: "descriptor-updated",
+			subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+		}));
+		this.destroyCallbacks = new CallbackSet(reporter, (descriptor) => ({
+			operation: "destroy",
+			event: "descriptor-removed",
+			subject: { kind: "descriptor", type: descriptor.type.name, id: descriptor.id },
+		}));
 	}
 
 	prepare(): void {

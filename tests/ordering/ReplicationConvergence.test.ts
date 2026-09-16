@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+	AgentState,
 	createReplicationSnapshot,
 	defineDescriptorType,
 	defineNumberProperty,
 	defineSourceType,
 	DescriptorReceiver,
 	SourceReceiver,
-	TallyContext,
 	type ReplicationValue,
 } from "../../src/index.js";
 import { testReporter } from "../src/index.js";
@@ -57,8 +57,8 @@ const OrderedDescriptor = defineDescriptorType<OrderedData, OrderedData>({
 	},
 });
 
-function registerDescriptorHandler(tally: TallyContext<undefined>) {
-	tally.registerDescriptorHandler(OrderedDescriptor, (ctx, data) => {
+function registerDescriptorHandler(agent: AgentState<undefined>) {
+	agent.registerDescriptorHandler(OrderedDescriptor, (ctx, data) => {
 		const source = ctx.addSource(data)!;
 		return {
 			source,
@@ -72,25 +72,19 @@ function registerDescriptorHandler(tally: TallyContext<undefined>) {
 	});
 }
 
-function configureTally(tally: TallyContext<undefined>) {
-	registerDescriptorHandler(tally);
-	tally.register(OrderedProperty);
-	tally.register(OrderedSource);
-	tally.register(OrderedDescriptor);
-}
-
 function createClient() {
-	const tally = new TallyContext<undefined>(testReporter);
-	configureTally(tally);
-	const agent = tally.createAgentState(undefined);
-	const sourceReceiver = new SourceReceiver(agent, (name) => tally.sources.get(name));
-	const descriptorReceiver = new DescriptorReceiver(agent, (name) => tally.descriptors.get(name));
-	return { agent, descriptorReceiver, sourceReceiver, tally };
+	const agent = new AgentState(undefined, testReporter);
+	registerDescriptorHandler(agent);
+	const sourceReceiver = new SourceReceiver(agent, (name) =>
+		name === OrderedSource.name ? OrderedSource : undefined
+	);
+	const descriptorReceiver = new DescriptorReceiver(agent, (name) =>
+		name === OrderedDescriptor.name ? OrderedDescriptor : undefined
+	);
+	return { agent, descriptorReceiver, sourceReceiver };
 }
 
-function populateAuthoritativeState(
-	agent: ReturnType<TallyContext<undefined>["createAgentState"]>
-) {
+function populateAuthoritativeState(agent: AgentState<undefined>) {
 	agent.addSource(OrderedSource, { operation: "add", value: 1 });
 	agent.addDescriptor(OrderedDescriptor, { operation: "multiply", value: 10 });
 	agent.addSource(OrderedSource, { operation: "add", value: 2 });
@@ -98,12 +92,11 @@ function populateAuthoritativeState(
 
 describe("replicated deterministic ordering convergence", () => {
 	it("resolves the same order-sensitive value across live Source and Descriptor replication", () => {
-		const serverTally = new TallyContext<undefined>(testReporter);
-		configureTally(serverTally);
-		const serverAgent = serverTally.createAgentState(undefined);
+		const serverAgent = new AgentState(undefined, testReporter);
+		registerDescriptorHandler(serverAgent);
 		const client = createClient();
 
-		serverTally.onReplicationEmit((_, event) => {
+		serverAgent.onReplicationEmit((event) => {
 			client.sourceReceiver.apply([event]);
 			client.descriptorReceiver.apply([event]);
 		});
@@ -116,9 +109,8 @@ describe("replicated deterministic ordering convergence", () => {
 	});
 
 	it("converges from snapshots regardless of Source/Descriptor reconciliation order", () => {
-		const serverTally = new TallyContext<undefined>(testReporter);
-		configureTally(serverTally);
-		const serverAgent = serverTally.createAgentState(undefined);
+		const serverAgent = new AgentState(undefined, testReporter);
+		registerDescriptorHandler(serverAgent);
 		populateAuthoritativeState(serverAgent);
 		const snapshot = createReplicationSnapshot(serverAgent);
 

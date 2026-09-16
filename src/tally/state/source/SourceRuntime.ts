@@ -65,22 +65,16 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.instance = new SourceInstance(identity, this);
 
 		const reporter = host.getReporter();
-		this.updateCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "update",
-				event: "source-updated",
-			},
-			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
-		this.destroyCallbacks = new CallbackSet(
-			reporter,
-			{
-				operation: "destroy",
-				event: "source-removed",
-			},
-			(source) => ({ subject: { kind: "source", type: source.type.name, id: source.id } })
-		);
+		this.updateCallbacks = new CallbackSet(reporter, (source) => ({
+			operation: "update",
+			event: "source-updated",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
+		this.destroyCallbacks = new CallbackSet(reporter, (source) => ({
+			operation: "destroy",
+			event: "source-removed",
+			subject: { kind: "source", type: source.type.name, id: source.id },
+		}));
 	}
 
 	prepare(): void {
