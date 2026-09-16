@@ -12,7 +12,7 @@ import type { AnySourceType } from "../state/source/SourceType.js";
 import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
-import { AgentState } from "./AgentState.js";
+import { AgentState, type AgentStateOptions } from "./AgentState.js";
 import type { TallyReporter, TallyReportOperation } from "./TallyReporter.js";
 
 type ReplicationCallback<TEntity> = (agent: AgentState<TEntity>, event: ReplicationEvent) => void;
@@ -24,6 +24,10 @@ const replicationOperationByEventKind = {
 	updated: "update",
 	removed: "destroy",
 } as const satisfies Record<ReplicationEvent["event"]["kind"], TallyReportOperation>;
+
+export interface TallyContextOptions {
+	reporter: TallyReporter;
+}
 
 /**
  * Coordinates shared Tally configuration and lifecycle behavior across
@@ -45,6 +49,8 @@ export class TallyContext<TEntity> {
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
 	private readonly agentConnections = new Map<AgentState<TEntity>, Set<Disconnect>>();
 
+	private readonly reporter: TallyReporter;
+
 	private readonly sourceAddedCallbacks: CallbackSet<[AgentState<TEntity>, Source]>;
 	private readonly sourceRemovedCallbacks: CallbackSet<[AgentState<TEntity>, Source]>;
 	private readonly sourceUpdatedCallbacks: CallbackSet<[AgentState<TEntity>, Source]>;
@@ -55,7 +61,10 @@ export class TallyContext<TEntity> {
 
 	private destroyed = false;
 
-	constructor(private readonly reporter: TallyReporter) {
+	constructor(private readonly options: TallyContextOptions) {
+		const { reporter } = options;
+		this.reporter = reporter;
+
 		this.sourceAddedCallbacks = new CallbackSet(reporter, (_, source) => ({
 			operation: "admit",
 			event: "source-added",
@@ -120,9 +129,9 @@ export class TallyContext<TEntity> {
 	 * Creates and configures an AgentState with the TallyContext's stored
 	 * DescriptorHandlers.
 	 */
-	createAgentState(entity: TEntity, reporter?: TallyReporter) {
+	createAgentState(entity: TEntity, override?: Partial<AgentStateOptions>) {
 		this.assertAlive();
-		const agent = new AgentState(entity, reporter ?? this.reporter);
+		const agent = new AgentState(entity, { ...this.options, ...override });
 		this.descriptorHandlers.forEach((handler, type) =>
 			agent.registerDescriptorHandler(type as DescriptorType<unknown, unknown>, handler)
 		);

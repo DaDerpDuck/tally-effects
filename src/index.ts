@@ -1,6 +1,6 @@
 // Core
-export { AgentState } from "./tally/core/AgentState.js";
-export { TallyContext } from "./tally/core/TallyContext.js";
+export { AgentState, type AgentStateOptions } from "./tally/core/AgentState.js";
+export { TallyContext, type TallyContextOptions } from "./tally/core/TallyContext.js";
 export type {
 	TallyReport,
 	TallyReportCode,

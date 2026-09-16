@@ -49,7 +49,7 @@ const reporter: TallyReporter = {
     },
 };
 
-const agent = new AgentState(player, reporter);
+const agent = new AgentState(player, { reporter });
 
 const sprint = agent.addSource(Sprinting, 1.5);
 
@@ -77,9 +77,9 @@ final value
 `AgentState` and `TallyContext` require a host-provided `TallyReporter`:
 
 ```ts
-import { AgentState } from "tally-effects";
+import { AgentState, TallyContext } from "tally-effects";
 
-const agent = new AgentState(player, reporter);
+const agent = new AgentState(player, { reporter });
 ```
 
 Tally invokes callbacks synchronously and remains reentrant, but observation callbacks are

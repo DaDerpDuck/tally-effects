@@ -30,7 +30,7 @@ describe("DuplicationGroup domains", () => {
 			duplication: group.member(),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 
 		const firstA = agent.addSource(FirstType, 1, { key: "a" })!;
 		const secondB = agent.addSource(SecondType, 2, { key: "b" })!;
@@ -85,7 +85,7 @@ describe("DuplicationGroup domains", () => {
 			duplication: poisonPolicy,
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const firstFire = agent.addSource(FireType, { heat: 10 }, { key: "damage" })!;
 		const poison = agent.addSource(PoisonType, { toxicity: 1 }, { key: "damage" })!;
 
@@ -105,7 +105,7 @@ describe("DuplicationGroup replacement selection", () => {
 			duplication: group.member(),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 
 		const second = agent.addSource(SourceType, 2)!;
@@ -126,7 +126,7 @@ describe("DuplicationGroup replacement selection", () => {
 			duplication: group.member(),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		const second = agent.addSource(SourceType, 2)!;
 
@@ -148,7 +148,7 @@ describe("DuplicationGroup replacement selection", () => {
 			duplication: group.member(),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		const second = agent.addSource(SourceType, 2)!;
 
@@ -170,7 +170,7 @@ describe("DuplicationGroup replacement selection", () => {
 			duplication: group.member({ rank: (value) => value }),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const highest = agent.addSource(SourceType, 10)!;
 		const lowest = agent.addSource(SourceType, 2)!;
 
@@ -192,7 +192,7 @@ describe("DuplicationGroup replacement selection", () => {
 			duplication: group.member({ rank: (value) => value }),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const highest = agent.addSource(SourceType, 10)!;
 		const lowest = agent.addSource(SourceType, 2)!;
 
@@ -214,7 +214,7 @@ describe("DuplicationGroup replacement selection", () => {
 			duplication: group.member({ rank: () => 0 }),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		const second = agent.addSource(SourceType, 2)!;
 
@@ -236,7 +236,7 @@ describe("DuplicationGroup replacement selection", () => {
 			duplication: group.member({ rank: () => 0 }),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		const second = agent.addSource(SourceType, 2)!;
 
@@ -261,7 +261,7 @@ describe("DuplicationGroup replacement selection", () => {
 			}),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 10)!;
 
 		expect(agent.addSource(SourceType, 5)).toBeUndefined();
@@ -290,7 +290,7 @@ describe("DuplicationGroup replacement selection", () => {
 			}),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const oldest = agent.addSource(SourceType, 100)!;
 		const newest = agent.addSource(SourceType, 50)!;
 
@@ -317,7 +317,7 @@ describe("DuplicationGroup replacement selection", () => {
 			}),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const removed = agent.addSource(SourceType, 100)!;
 		const oldest = agent.addSource(SourceType, 50)!;
 		const middle = agent.addSource(SourceType, 30)!;
@@ -353,7 +353,7 @@ describe("heterogeneous DuplicationGroup lifecycle", () => {
 			source: OutputType,
 			duplication: group.member({ rank: (value) => value }),
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const bindingDestroyed = vi.fn();
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;

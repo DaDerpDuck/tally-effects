@@ -48,8 +48,8 @@ function createReplicationFixture({
 	const sourceTypesByName = new Map(
 		allSourceTypes.map((sourceType) => [sourceType.name, sourceType])
 	);
-	const serverAgent = new AgentState(undefined, testReporter);
-	const clientAgent = new AgentState(undefined, testReporter);
+	const serverAgent = new AgentState(undefined, { reporter: testReporter });
+	const clientAgent = new AgentState(undefined, { reporter: testReporter });
 	const receiver = new SourceReceiver(clientAgent, (name) => sourceTypesByName.get(name));
 	const emittedEvents: ReplicationEvent[] = [];
 

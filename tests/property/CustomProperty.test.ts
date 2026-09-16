@@ -129,7 +129,7 @@ describe("custom property", () => {
 	});
 
 	it("agent resolves custom property correctly", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.get(Custom)).toEqual({ foo: "bar" });
 
 		const source1 = agent.addSource(CustomSource, true)!;
@@ -138,7 +138,7 @@ describe("custom property", () => {
 	});
 
 	it("agent resolves undefined property correctly", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.get(Custom)).toEqual({ foo: "bar" });
 
 		const source1 = agent.addSource(CustomSource, false)!;

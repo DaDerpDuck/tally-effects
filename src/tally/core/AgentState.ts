@@ -21,6 +21,10 @@ import type { TallyReporter } from "./TallyReporter.js";
 type DestroyCallback = () => void;
 type ReplicationCallback = (event: ReplicationEvent) => void;
 
+export interface AgentStateOptions {
+	reporter: TallyReporter;
+}
+
 /**
  * Holds the runtime Tally state for a single entity.
  *
@@ -28,10 +32,11 @@ type ReplicationCallback = (event: ReplicationEvent) => void;
  * lifecycle observation for the associated entity.
  */
 export class AgentState<TEntity> {
-	private readonly counter: IdCounter;
 	private readonly duplicationIndex: DuplicationIndex;
 	private readonly duplicationResolver: DuplicationResolver;
 	private readonly admissionCoordinator: AdmissionCoordinator;
+	private readonly counter: IdCounter;
+	private readonly reporter: TallyReporter;
 
 	private readonly sources: SourceManager;
 	private readonly descriptors: DescriptorManager<TEntity>;
@@ -43,15 +48,18 @@ export class AgentState<TEntity> {
 
 	constructor(
 		public readonly entity: TEntity,
-		private readonly reporter: TallyReporter
+		options: AgentStateOptions
 	) {
-		this.counter = new IdCounter();
 		this.duplicationIndex = new DuplicationIndex();
 		this.duplicationResolver = new DuplicationResolver(this.duplicationIndex);
 		this.admissionCoordinator = new AdmissionCoordinator(
 			this.duplicationIndex,
 			this.duplicationResolver
 		);
+
+		this.counter = new IdCounter();
+		const { reporter } = options;
+		this.reporter = reporter;
 
 		this.sources = new SourceManager(reporter, this.counter, this.admissionCoordinator);
 		this.descriptors = new DescriptorManager(

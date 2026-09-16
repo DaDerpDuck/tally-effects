@@ -34,7 +34,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			duplication: group.member(),
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		first.onDestroy(() => agent.addSource(SourceType, 2));
 
@@ -50,7 +50,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			selector: "lowest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const SourceType = defineSourceType<number>({
 			name: "ReentrantGroupedRankingSource",
 			priority: 100,
@@ -90,7 +90,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 				return [];
 			},
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const existing = agent.addSource(SourceType, { rank: 5 })!;
 
 		expect(agent.addSource(SourceType, { rank: 10 })).toBeUndefined();
@@ -104,7 +104,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			selector: "oldest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const SourceType = defineSourceType<number>({
 			name: "ReentrantGroupedPublishSource",
 			priority: 100,
@@ -134,7 +134,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			selector: "oldest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const SourceType = defineSourceType<number>({
 			name: "CancelledPendingSource",
 			priority: 100,
@@ -165,7 +165,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			selector: "oldest",
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const SourceType = defineSourceType<number>({
 			name: "DestroyedUpdatingSource",
 			priority: 100,
@@ -205,7 +205,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 				return [];
 			},
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 
 		expect(() => agent.addSource(SourceType, 1)).toThrow("contribution failed");
 		shouldThrow = false;
@@ -224,7 +224,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		let shouldBind = false;
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			if (!shouldBind) return undefined;
@@ -259,7 +259,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			duplication: group.member(),
 		});
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			if (!reentered) {
 				reentered = true;
@@ -291,7 +291,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			name: "FailedDescriptorHandler",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			ctx.addSource(data);
 			throw new Error("handler failed");
@@ -309,7 +309,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 		});
 		let reentered = false;
 		const evaluated = new Array<number>();
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const SourceType = defineSourceType<number>({
 			name: "PendingReconciliationSource",
 			priority: 100,
@@ -339,7 +339,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 			name: "ReentrantLiveSourceUpdateProperty",
 			defaultValue: 0,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		// eslint-disable-next-line prefer-const
 		let source: Source<number> | undefined;
 		let reentered = false;
@@ -364,7 +364,7 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 
 	it("unregisters a Source destroyed by pending reconciliation", () => {
 		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const added = new Array<Source<number>>();
 		const SourceType = defineSourceType<number>({
 			name: "PendingReconciliationDestroyedSource",
@@ -399,7 +399,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "replace" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		first.onDestroy(() => {
 			throw new Error("destroy failed");
@@ -418,7 +418,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		let replacement: Source<number> | undefined;
 		agent.onSourceRemoved(() => {
@@ -442,7 +442,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const source = agent.addSource(SourceType, 1)!;
 		const laterDestroyCallback = vi.fn();
 		const removed = vi.fn();
@@ -472,7 +472,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const added = vi.fn();
 		agent.onSourceAdded(added);
 		agent.onPropertyChanged(Property, (value) => {
@@ -499,7 +499,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const first = agent.addSource(SourceType, 1)!;
 		let replacement: Source<number> | undefined;
 		agent.onPropertyChanged(Property, (value) => {
@@ -520,7 +520,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const disconnect = agent.onSourceAdded((source) => {
 			disconnect();
 			source.destroy();
@@ -537,7 +537,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			priority: 100,
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const events = new Array<string>();
 		agent.onSourceAdded((source) => {
 			events.push("added");
@@ -557,7 +557,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		let shouldThrow = true;
 		agent.onSourceAdded(() => {
 			if (shouldThrow) throw new Error("added callback failed");
@@ -582,7 +582,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.onSourceAdded(() => {
 			throw new Error("added callback failed");
 		});
@@ -607,7 +607,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -637,7 +637,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			duplication: { policy: "ignore" },
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.onPropertyChanged(Property, (value) => {
 			if (value === 1) throw new Error("admission flush failed");
 		});
@@ -666,7 +666,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -708,7 +708,7 @@ describeSuite("failed preparation and contribution rollback", () => {
 				value === 1 ? [Property.add(1), throwingContribution] : [Property.add(value)],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 
 		expect(() => agent.addSource(SourceType, 1)).toThrow("second modifier failed");
 		expect(agent.getSources(SourceType)).toEqual(new Set());
@@ -728,7 +728,7 @@ describeSuite("failed preparation and contribution rollback", () => {
 			priority: 100,
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const source = agent.addSource(SourceType, 1)!;
 		const destroyed = vi.fn();
 		const removed = vi.fn();
@@ -758,7 +758,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -792,7 +792,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -822,7 +822,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			name: "DestroyedPendingReconciliationProperty",
 			defaultValue: 0,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		let reentered = false;
 		const SourceType = defineSourceType<number>({
 			name: "DestroyedPendingReconciliationSource",
@@ -858,7 +858,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -891,7 +891,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		let shouldThrow = true;
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
@@ -925,7 +925,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			name: "RemovedDescriptorReplacement",
 			source: OutputType,
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -961,7 +961,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -999,7 +999,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			name: "AddedObserverRemovedDescriptor",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -1031,7 +1031,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			source: OutputType,
 			duplication: { policy: "ignore" },
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -1064,7 +1064,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			name: "ThrowingRollbackDescriptor",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		let captured: Descriptor<number, number> | undefined;
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
@@ -1101,7 +1101,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 			name: "AggregateDescriptorCleanup",
 			source: OutputType,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			source.onDestroy(() => {

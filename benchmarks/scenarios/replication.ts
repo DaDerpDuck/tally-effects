@@ -91,7 +91,7 @@ export function createSyncScenario(size: number, mode: "snapshot" | "events"): S
 		source: sourceType,
 		replication: numberReplication,
 	});
-	const agent = new AgentState(undefined, benchmarkReporter);
+	const agent = new AgentState(undefined, { reporter: benchmarkReporter });
 	agent.registerDescriptorHandler(descriptorType, (context, data) => {
 		const source = context.addSource(data)!;
 		return { source, update: (next) => source.set(next), destroy: () => source.destroy() };

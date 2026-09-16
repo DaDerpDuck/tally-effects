@@ -59,7 +59,7 @@ describe("agent state", () => {
 	});
 
 	it("adds source", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.get(Poison)).toBe(0);
 
 		const source = agent.addSource(PoisonSource, { intensity: 5 });
@@ -68,7 +68,7 @@ describe("agent state", () => {
 	});
 
 	it("resolves source with falsy cache (number)", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.get(Poison)).toBe(0);
 
 		const source = agent.addSource(PoisonSource, { intensity: 5 })!;
@@ -93,7 +93,7 @@ describe("agent state", () => {
 			contribute: (data) => [BooleanProp.toggle(data)],
 		});
 
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.get(BooleanProp)).toBe(false);
 
 		const source = agent.addSource(BooleanSource, true)!;
@@ -122,7 +122,7 @@ describe("agent state", () => {
 			},
 		});
 
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.get(Prop1)).toBe(10);
 		expect(agent.get(Prop2)).toBe(20);
 
@@ -149,7 +149,7 @@ describe("agent state", () => {
 			duplication: { policy: "allow" },
 		});
 
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.get(NumProp)).toBe(0);
 
 		const source1 = agent.addSource(PropSource, 1)!;
@@ -180,7 +180,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: () => [],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const initial = { value: 1 };
 		const source = agent.addSource(SourceType, initial)!;
 		const updated = vi.fn();
@@ -200,7 +200,7 @@ describe("agent state", () => {
 			contribute: () => [],
 			dataEquals: (a, b) => a.value === b.value,
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const source = agent.addSource(SourceType, { value: 1, label: "first" })!;
 		const updated = vi.fn();
 		source.onUpdate(updated);
@@ -231,7 +231,7 @@ describe("agent state", () => {
 				return [Property.add(value)];
 			},
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const source = agent.addSource(SourceType, 1)!;
 		const updated = vi.fn();
 		source.onUpdate(updated);
@@ -255,7 +255,7 @@ describe("agent state", () => {
 				throw new Error("source equality failed");
 			},
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const source = agent.addSource(SourceType, 1)!;
 
 		expect(() => source.set(2)).toThrow("source equality failed");
@@ -284,7 +284,7 @@ describe("agent state", () => {
 			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const source = agent.addSource(SourceType, 1)!;
 
 		shouldThrow = true;
@@ -323,7 +323,7 @@ describe("agent state", () => {
 			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const source = agent.addSource(SourceType, 1)!;
 
 		shouldThrow = true;
@@ -360,7 +360,7 @@ describe("agent state", () => {
 			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const source = agent.addSource(SourceType, 1)!;
 
 		shouldThrow = true;
@@ -408,7 +408,7 @@ describe("agent state", () => {
 			contribute: (value) => [teardownProperty.add(value)],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const updated = agent.addSource(UpdatedSource, 1)!;
 		const tornDown = agent.addSource(TeardownSource, 1)!;
 
@@ -465,7 +465,7 @@ describe("agent state", () => {
 		});
 
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const first = agent.addSource(ThrowingSource, 1)!;
 		const second = agent.addSource(UnrelatedSource, 1)!;
 		const secondDestroyed = vi.fn();
@@ -519,7 +519,7 @@ describe("agent state", () => {
 			contribute: (value) => [unrelatedProperty.add(value)],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const pending = agent.addSource(PendingSource, 1)!;
 		const unrelated = agent.addSource(UnrelatedSource, 1)!;
 		const destroyed = vi.fn();
@@ -554,7 +554,7 @@ describe("agent state", () => {
 			contribute: (value) => [contributeModifier({ property, operation: "add", value })],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const tornDown = agent.addSource(SourceType, 1)!;
 		const updated = agent.addSource(SourceType, 1)!;
 		const updatedCallback = vi.fn();
@@ -571,7 +571,7 @@ describe("agent state", () => {
 	});
 
 	it("throws when mutating a destroyed source", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const source = agent.addSource(PoisonSource, { intensity: 5 })!;
 
 		source.destroy();
@@ -581,7 +581,7 @@ describe("agent state", () => {
 	});
 
 	it("allows inert source callbacks after destruction", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const source = agent.addSource(PoisonSource, { intensity: 5 })!;
 		source.destroy();
 
@@ -598,7 +598,7 @@ describe("agent state", () => {
 	});
 
 	it("rejects AgentState mutations after destruction while keeping reads and callbacks safe", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.addSource(PoisonSource, { intensity: 5 });
 		agent.destroy();
 
@@ -624,7 +624,7 @@ describe("agent state", () => {
 	});
 
 	it("has property observation on source add", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -634,7 +634,7 @@ describe("agent state", () => {
 	});
 
 	it("has property observation on source set", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -649,7 +649,7 @@ describe("agent state", () => {
 	});
 
 	it("has no-op property observation on source set", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -673,7 +673,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: (value) => [Property.override(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const changed = vi.fn();
 		agent.onPropertyChanged(Property, changed);
 		const source = agent.addSource(SourceType, 1.1)!;
@@ -689,7 +689,7 @@ describe("agent state", () => {
 	});
 
 	it("has property observation on source destroy", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const callback = vi.fn();
 
 		agent.onPropertyChanged(Poison, callback);
@@ -714,7 +714,7 @@ describe("agent state", () => {
 			contribute: (value) => [Property.add(value)],
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const source = agent.addSource(SourceType, 1)!;
 		const disconnect = agent.onPropertyChanged(Property, (value) => {
 			if (value === 2) throw new Error("property observer failed");
@@ -740,7 +740,7 @@ describe("agent state", () => {
 			"SourceNotificationResolutionFailure"
 		);
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const source = agent.addSource(sourceType, 1)!;
 		const updated = vi.fn();
 		const removed = vi.fn();
@@ -790,7 +790,7 @@ describe("agent state", () => {
 		const { property, sourceType, throwOnResolve, allowResolve } =
 			createResolutionFailureFixture("RecoverableResolutionFailure");
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const source = agent.addSource(sourceType, 1)!;
 
 		throwOnResolve();
@@ -805,7 +805,7 @@ describe("agent state", () => {
 	});
 
 	it("disconnects source observation", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const callback = vi.fn();
 
 		const disconnect = agent.onPropertyChanged(Poison, callback);
@@ -816,7 +816,7 @@ describe("agent state", () => {
 	});
 
 	it("checks has source", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		expect(agent.hasSource(PoisonSource)).toBe(false);
 
 		const source = agent.addSource(PoisonSource, { intensity: 100 })!;
@@ -827,7 +827,7 @@ describe("agent state", () => {
 	});
 
 	it("assigns unique monotonic source ids within an agent", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const SourceType = defineSourceType<undefined>({
 			name: "IdentifiedSource",
 			priority: 100,
@@ -842,7 +842,7 @@ describe("agent state", () => {
 	});
 
 	it("removes destroyed sources from unfiltered getSources", () => {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const SourceTypeA = defineSourceType<undefined>({
 			name: "SourceA",
 			priority: 100,
@@ -876,7 +876,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: (value) => [Property.multiply(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 
 		agent.addSource(SourceTypeA, 5);
 		agent.addSource(SourceTypeB, 2);
@@ -910,7 +910,7 @@ describe("agent state", () => {
 			name: "AgentDestroyDescriptor",
 			source: DescriptorOutput,
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (ctx) => {
 			const source = ctx.addSource(undefined)!;
 			return {
@@ -947,7 +947,7 @@ describe("agent state", () => {
 			source: DescriptorOutput,
 		});
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		agent.registerDescriptorHandler(DescriptorType, (context) => {
 			const source = context.addSource(undefined)!;
 			return { source, update: () => {}, destroy: () => source.destroy() };
@@ -979,7 +979,7 @@ describe("agent state", () => {
 			priority: 100,
 			contribute: (value) => [Property.add(value)],
 		});
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const callback = vi.fn();
 		const disconnect = agent.onPropertyChanged(Property, callback);
 

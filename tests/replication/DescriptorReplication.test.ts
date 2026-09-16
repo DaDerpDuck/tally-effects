@@ -91,8 +91,8 @@ function createReplicationFixture({
 	const descriptorTypesByName = new Map(
 		allDescriptorTypes.map((descriptorType) => [descriptorType.name, descriptorType])
 	);
-	const serverAgent = new AgentState(undefined, testReporter);
-	const clientAgent = new AgentState(undefined, testReporter);
+	const serverAgent = new AgentState(undefined, { reporter: testReporter });
+	const clientAgent = new AgentState(undefined, { reporter: testReporter });
 	for (const descriptorType of allDescriptorTypes) {
 		registerHandler(serverAgent, descriptorType);
 		registerHandler(clientAgent, descriptorType);
