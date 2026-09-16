@@ -288,6 +288,7 @@ export class AgentState<TEntity> {
 		this.destroyAllDescriptors();
 
 		this.destroyCallbacks.clear();
+		this.replicationCallbacks.clear();
 	}
 
 	private assertAlive() {
