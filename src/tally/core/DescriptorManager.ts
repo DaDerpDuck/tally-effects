@@ -207,7 +207,9 @@ export class DescriptorManager<TEntity> {
 			},
 			uninstallDescriptor: (descriptor) => {
 				this.descriptors.delete(descriptor);
-				this.descriptorMap.get(type)?.delete(descriptor);
+				if (this.descriptorMap.get(type)?.delete(descriptor)) {
+					if (this.descriptorMap.get(type)?.size === 0) this.descriptorMap.delete(type);
+				}
 			},
 			announceAdded: (descriptor) => {
 				this.replicationForwarder?.(descriptor, "added");

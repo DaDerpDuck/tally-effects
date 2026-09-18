@@ -223,7 +223,10 @@ export class SourceManager {
 				this.markDirty(handles);
 				this.clearModifierHandles(handles);
 				this.sources.delete(source);
-				this.sourceMap.get(source.type)?.delete(source);
+				if (this.sourceMap.get(source.type)?.delete(source)) {
+					if (this.sourceMap.get(source.type)?.size === 0)
+						this.sourceMap.delete(source.type);
+				}
 			},
 			announceAdded: (source) => {
 				this.replicationForwarder?.(source, "added");
