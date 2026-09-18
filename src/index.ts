@@ -1,3 +1,5 @@
+export const TALLY_VERSION = "0.2.0" as const;
+
 // Core
 export { AgentState, type AgentStateOptions } from "./tally/core/AgentState.js";
 export { TallyContext, type TallyContextOptions } from "./tally/core/TallyContext.js";
