@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-18
+
 ### Added
 
 - Added the exported structured `TallyReport` and `TallyReporter` contracts for host-owned
