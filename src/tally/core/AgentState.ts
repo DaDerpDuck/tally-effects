@@ -280,8 +280,8 @@ export class AgentState<TEntity> {
 		this.sources.disconnectAll();
 		this.descriptors.disconnectAll();
 
-		this.destroyAllDescriptors();
 		this.destroyAllSources();
+		this.destroyAllDescriptors();
 
 		this.replicationEmitter?.disconnectAll();
 		this.destroyCallbacks.clear();

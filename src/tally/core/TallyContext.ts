@@ -49,6 +49,7 @@ export class TallyContext<TEntity> {
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
 	private readonly agentConnections = new Map<AgentState<TEntity>, Set<Disconnect>>();
 
+	private readonly options: TallyContextOptions;
 	private readonly reporter: TallyReporter;
 
 	private readonly sourceAddedCallbacks: CallbackSet<[AgentState<TEntity>, Source]>;
@@ -61,7 +62,8 @@ export class TallyContext<TEntity> {
 
 	private destroyed = false;
 
-	constructor(private readonly options: TallyContextOptions) {
+	constructor(options: TallyContextOptions) {
+		this.options = { ...options };
 		const { reporter } = options;
 		this.reporter = reporter;
 
