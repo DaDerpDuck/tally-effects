@@ -1,3 +1,5 @@
+export const TALLY_VERSION = "0.2.0" as const;
+
 // Core
 export { AgentState, type AgentStateOptions } from "./tally/core/AgentState.js";
 export { TallyContext, type TallyContextOptions } from "./tally/core/TallyContext.js";
@@ -58,6 +60,7 @@ export {
 	type AnySourceType,
 	type SourceTypeDefinition,
 } from "./tally/state/source/SourceType.js";
+export type { SourceBuilder } from "./tally/state/source/SourceBuilder.js";
 
 // Descriptor
 export type { AnyDescriptor, Descriptor } from "./tally/state/descriptor/Descriptor.js";
@@ -73,6 +76,7 @@ export {
 	type AnyDescriptorType,
 	type DescriptorTypeDefinition,
 } from "./tally/state/descriptor/DescriptorType.js";
+export type { DescriptorBuilder } from "./tally/state/descriptor/DescriptorBuilder.js";
 
 // Replication
 export type { ReplicationDefinition } from "./tally/replication/ReplicationDefinition.js";
