@@ -37,6 +37,7 @@ export class DescriptorManager<TEntity> {
 	private static readonly EmptySet: ReadonlySet<unknown> = new Set();
 
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
+	private readonly descriptors = new Set<AnyDescriptor>();
 	private readonly descriptorMap = new Map<AnyDescriptorType, Set<AnyDescriptor>>();
 
 	private readonly descriptorAddedCallbacks: CallbackSet<
@@ -123,8 +124,7 @@ export class DescriptorManager<TEntity> {
 	getDescriptors(
 		type?: DescriptorType<unknown, unknown>
 	): ReadonlySet<Descriptor<unknown, unknown>> {
-		if (type === undefined)
-			return new Set(this.descriptorMap.values().flatMap((x) => x.values().toArray()));
+		if (type === undefined) return this.descriptors;
 		return (this.descriptorMap.get(type) ?? DescriptorManager.EmptySet) as ReadonlySet<
 			Descriptor<unknown, unknown>
 		>;
@@ -147,9 +147,8 @@ export class DescriptorManager<TEntity> {
 	}
 
 	destroyAllDescriptors() {
-		this.descriptorMap
-			.values()
-			.forEach((descriptors) => descriptors.forEach((x) => x.destroy()));
+		this.sources.batch(() => this.descriptors.forEach((descriptor) => descriptor.destroy()));
+		this.descriptors.clear();
 		this.descriptorMap.clear();
 	}
 
@@ -203,9 +202,11 @@ export class DescriptorManager<TEntity> {
 			getReporter: () => this.reporter,
 			tryBind: (derivedSources) => bindingProvider(derivedSources),
 			installDescriptor: (descriptor) => {
+				this.descriptors.add(descriptor);
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
 			},
 			uninstallDescriptor: (descriptor) => {
+				this.descriptors.delete(descriptor);
 				this.descriptorMap.get(type)?.delete(descriptor);
 			},
 			announceAdded: (descriptor) => {
