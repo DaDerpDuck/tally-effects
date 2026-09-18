@@ -21,7 +21,7 @@ export function createSourceDuplicationFixture(
 		contribute: (value) => [Property.add(value)],
 		...(duplication === undefined ? {} : { duplication }),
 	});
-	const agent = new AgentState(undefined, testReporter);
+	const agent = new AgentState(undefined, { reporter: testReporter });
 
 	return { agent, Property, SourceType };
 }
@@ -54,7 +54,7 @@ export function createDescriptorDuplicationFixture(
 			},
 		},
 	});
-	const agent = new AgentState(undefined, testReporter);
+	const agent = new AgentState(undefined, { reporter: testReporter });
 	const bindingDestroyed = vi.fn();
 
 	agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {

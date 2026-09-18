@@ -37,7 +37,7 @@ export function createNumberSourceFixture(duplication?: DuplicatePolicy<Source<n
 		contribute: (value) => [property.add(value)],
 		...(duplication === undefined ? {} : { duplication }),
 	});
-	const agent = new AgentState(undefined, benchmarkReporter);
+	const agent = new AgentState(undefined, { reporter: benchmarkReporter });
 
 	return { agent, property, type };
 }

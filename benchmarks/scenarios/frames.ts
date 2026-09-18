@@ -23,7 +23,7 @@ export function createFrameScenario(agentCount: number, batched: boolean): Scena
 		contribute: (value) => [speed.multiply(value)],
 	});
 	const actors = Array.from({ length: agentCount }, () => {
-		const agent = new AgentState(undefined, benchmarkReporter);
+		const agent = new AgentState(undefined, { reporter: benchmarkReporter });
 		agent.batch(() => {
 			for (let i = 0; i < 8; i++) agent.addSource(equipment, 1);
 		});

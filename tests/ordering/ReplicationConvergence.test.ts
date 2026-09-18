@@ -73,7 +73,7 @@ function registerDescriptorHandler(agent: AgentState<undefined>) {
 }
 
 function createClient() {
-	const agent = new AgentState(undefined, testReporter);
+	const agent = new AgentState(undefined, { reporter: testReporter });
 	registerDescriptorHandler(agent);
 	const sourceReceiver = new SourceReceiver(agent, (name) =>
 		name === OrderedSource.name ? OrderedSource : undefined
@@ -92,7 +92,7 @@ function populateAuthoritativeState(agent: AgentState<undefined>) {
 
 describe("replicated deterministic ordering convergence", () => {
 	it("resolves the same order-sensitive value across live Source and Descriptor replication", () => {
-		const serverAgent = new AgentState(undefined, testReporter);
+		const serverAgent = new AgentState(undefined, { reporter: testReporter });
 		registerDescriptorHandler(serverAgent);
 		const client = createClient();
 
@@ -109,7 +109,7 @@ describe("replicated deterministic ordering convergence", () => {
 	});
 
 	it("converges from snapshots regardless of Source/Descriptor reconciliation order", () => {
-		const serverAgent = new AgentState(undefined, testReporter);
+		const serverAgent = new AgentState(undefined, { reporter: testReporter });
 		registerDescriptorHandler(serverAgent);
 		populateAuthoritativeState(serverAgent);
 		const snapshot = createReplicationSnapshot(serverAgent);

@@ -62,7 +62,7 @@ function registerHandler(
 }
 
 function createAgentFixture() {
-	const agent = new AgentState<undefined>(undefined, testReporter);
+	const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 	const bindingDestroyed = registerHandler(agent);
 	return { agent, bindingDestroyed };
 }
@@ -98,14 +98,14 @@ describe("descriptor type", () => {
 	});
 
 	it("registers descriptors by name", () => {
-		const tally = new TallyContext<undefined>(testReporter);
+		const tally = new TallyContext<undefined>({ reporter: testReporter });
 		tally.register(ValueDescriptor);
 
 		expect(tally.descriptors.get("ValueDescriptor")).toBe(ValueDescriptor);
 	});
 
 	it("allows the same descriptor type instance to be registered repeatedly", () => {
-		const tally = new TallyContext<undefined>(testReporter);
+		const tally = new TallyContext<undefined>({ reporter: testReporter });
 
 		tally.register(ValueDescriptor);
 		tally.register(ValueDescriptor);
@@ -117,7 +117,7 @@ describe("descriptor type", () => {
 
 describe("descriptor lifecycle", () => {
 	it("requires a descriptor handler before creation", () => {
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 
 		expect(() => agent.addDescriptor(ValueDescriptor, { value: 5 })).toThrow();
 	});
@@ -160,7 +160,7 @@ describe("descriptor lifecycle", () => {
 			name: "SerializedDescriptorUpdate",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const descriptorRef: { current: Descriptor<number, number> | undefined } = {
 			current: undefined,
 		};
@@ -202,7 +202,7 @@ describe("descriptor lifecycle", () => {
 			name: "ThrowingBindingUpdate",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(ThrowingBindingUpdate, (context, value) => {
 			const source = context.addSource(value)!;
 			return {
@@ -245,7 +245,7 @@ describe("descriptor lifecycle", () => {
 			source: DescriptorSource,
 			dataEquals: (a, b) => a.value === b.value,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		registerHandler(agent, EquivalentDescriptor);
 		const descriptor = agent.addDescriptor(EquivalentDescriptor, { value: 5 })!;
 		const descriptorUpdated = vi.fn();
@@ -270,7 +270,7 @@ describe("descriptor lifecycle", () => {
 				throw new Error("descriptor equality failed");
 			},
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(ThrowingEqualityDescriptor, (context, value) => {
 			const source = context.addSource({ value })!;
 			return { source, update: () => {}, destroy: () => source.destroy() };
@@ -342,7 +342,7 @@ describe("descriptor lifecycle", () => {
 			name: "ReentrantBindingDestroyDescriptor",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(ReentrantDescriptor, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -373,7 +373,7 @@ describe("descriptor lifecycle", () => {
 			name: "ThrowingReentrantBindingDestroyDescriptor",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(ThrowingDescriptor, (ctx, data) => {
 			const first = ctx.addSource(data)!;
 			const second = ctx.addSource(data + 1)!;
@@ -404,7 +404,7 @@ describe("descriptor lifecycle", () => {
 			name: "DescriptorDerivedSourceCleanupDescriptor",
 			source: sourceType,
 		});
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		agent.registerDescriptorHandler(DescriptorType, (context) => {
 			const first = context.addSource(1)!;
 			context.addSource(2);
@@ -434,7 +434,7 @@ describe("descriptor lifecycle", () => {
 			name: "ReporterFailureDescriptor",
 			source: Output,
 		});
-		const agent = new AgentState<undefined>(undefined, reporter);
+		const agent = new AgentState<undefined>(undefined, { reporter });
 		agent.registerDescriptorHandler(DescriptorType, (context) => {
 			const first = context.addSource(1)!;
 			context.addSource(2);
@@ -527,7 +527,7 @@ describe("descriptor lifecycle", () => {
 	});
 
 	it("destroys every descriptor binding when all descriptors are destroyed", () => {
-		const agent = new AgentState<undefined>(undefined, testReporter);
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
 		const bindingDestroyed = registerHandler(agent);
 		agent.addDescriptor(ValueDescriptor, { value: 1 });
 		agent.addDescriptor(ValueDescriptor, { value: 2 });
@@ -535,6 +535,25 @@ describe("descriptor lifecycle", () => {
 		agent.destroyAllDescriptors();
 
 		expect(bindingDestroyed).toHaveBeenCalledTimes(2);
+		expect(agent.getDescriptors().size).toBe(0);
+		expect(agent.getSources(DescriptorSource).size).toBe(0);
+		expect(agent.get(Value)).toBe(0);
+	});
+
+	it("destroys a descriptor admitted by final property resolution during bulk teardown", () => {
+		const { agent } = createAgentFixture();
+		agent.addDescriptor(ValueDescriptor, { value: 1 });
+
+		let admittedDuringTeardown = false;
+		agent.onPropertyChanged(Value, (value) => {
+			if (value !== 0 || admittedDuringTeardown) return;
+			admittedDuringTeardown = true;
+			agent.addDescriptor(ValueDescriptor, { value: 1 });
+		});
+
+		agent.destroyAllDescriptors();
+
+		expect(admittedDuringTeardown).toBe(true);
 		expect(agent.getDescriptors().size).toBe(0);
 		expect(agent.getSources(DescriptorSource).size).toBe(0);
 		expect(agent.get(Value)).toBe(0);

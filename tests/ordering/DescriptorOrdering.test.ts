@@ -58,7 +58,7 @@ const CounterBumpSource = defineSourceType<undefined>({
 
 describe("deterministic Descriptor ordering integration", () => {
 	it("makes a derived Source inherit its replicated Descriptor's authoritative order", () => {
-		const agent = new AgentState({}, testReporter);
+		const agent = new AgentState({}, { reporter: testReporter });
 		agent.registerDescriptorHandler(OrderedDescriptor, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {

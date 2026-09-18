@@ -152,7 +152,7 @@ const OrderedSource = defineSourceType<OrderedSourceData>({
 
 describe("deterministic Source ordering integration", () => {
 	it("does not let local creation time override authoritative ordering", () => {
-		const agent = new AgentState({}, testReporter);
+		const agent = new AgentState({}, { reporter: testReporter });
 
 		agent.addSource(
 			OrderedSource,
@@ -174,7 +174,7 @@ describe("deterministic Source ordering integration", () => {
 	});
 
 	it("keeps a Source in the same ordering position after it updates", () => {
-		const agent = new AgentState({}, testReporter);
+		const agent = new AgentState({}, { reporter: testReporter });
 
 		const first = agent.addSource(
 			OrderedSource,
@@ -196,8 +196,8 @@ describe("deterministic Source ordering integration", () => {
 	});
 
 	it("converges when the same authoritative Sources are created in different local orders", () => {
-		const firstAgent = new AgentState({}, testReporter);
-		const secondAgent = new AgentState({}, testReporter);
+		const firstAgent = new AgentState({}, { reporter: testReporter });
+		const secondAgent = new AgentState({}, { reporter: testReporter });
 
 		firstAgent.addSource(
 			OrderedSource,

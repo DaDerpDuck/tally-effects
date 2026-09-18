@@ -51,7 +51,7 @@ export function createCombatScenario(agentCount: number, batched: boolean): Scen
 	let notifications = 0;
 	let checksum = 0;
 	const agents = Array.from({ length: agentCount }, () => {
-		const agent = new AgentState(undefined, benchmarkReporter);
+		const agent = new AgentState(undefined, { reporter: benchmarkReporter });
 		agent.registerDescriptorHandler(shieldType, (context, value) => {
 			const source = context.addSource(value)!;
 			return { source, update: (next) => source.set(next), destroy: () => source.destroy() };

@@ -28,10 +28,16 @@ type BindingProvider<TDescriptorData, TSourceData> = (
 	derivedSources: Source[]
 ) => DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 
+type DescriptorLifecycleForwarder = (
+	source: AnyDescriptor,
+	operation: "added" | "updated" | "removed"
+) => void;
+
 export class DescriptorManager<TEntity> {
 	private static readonly EmptySet: ReadonlySet<unknown> = new Set();
 
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
+	private readonly descriptors = new Set<AnyDescriptor>();
 	private readonly descriptorMap = new Map<AnyDescriptorType, Set<AnyDescriptor>>();
 
 	private readonly descriptorAddedCallbacks: CallbackSet<
@@ -43,6 +49,8 @@ export class DescriptorManager<TEntity> {
 	private readonly descriptorUpdatedCallbacks: CallbackSet<
 		[descriptor: Descriptor<unknown, unknown>]
 	>;
+
+	private replicationForwarder: DescriptorLifecycleForwarder | undefined;
 
 	constructor(
 		private readonly reporter: TallyReporter,
@@ -116,11 +124,14 @@ export class DescriptorManager<TEntity> {
 	getDescriptors(
 		type?: DescriptorType<unknown, unknown>
 	): ReadonlySet<Descriptor<unknown, unknown>> {
-		if (type === undefined)
-			return new Set(this.descriptorMap.values().flatMap((x) => x.values().toArray()));
+		if (type === undefined) return this.descriptors;
 		return (this.descriptorMap.get(type) ?? DescriptorManager.EmptySet) as ReadonlySet<
 			Descriptor<unknown, unknown>
 		>;
+	}
+
+	setReplicationForwarder(forwarder: DescriptorLifecycleForwarder) {
+		this.replicationForwarder = forwarder;
 	}
 
 	onDescriptorAdded(callback: DescriptorCallback): Disconnect {
@@ -136,9 +147,9 @@ export class DescriptorManager<TEntity> {
 	}
 
 	destroyAllDescriptors() {
-		this.descriptorMap
-			.values()
-			.forEach((descriptors) => descriptors.forEach((x) => x.destroy()));
+		// do not batch: reentrant descriptors added by property observers become untracked
+		this.descriptors.forEach((descriptor) => descriptor.destroy());
+		this.descriptors.clear();
 		this.descriptorMap.clear();
 	}
 
@@ -146,6 +157,7 @@ export class DescriptorManager<TEntity> {
 		this.descriptorAddedCallbacks.clear();
 		this.descriptorRemovedCallbacks.clear();
 		this.descriptorUpdatedCallbacks.clear();
+		this.replicationForwarder = undefined;
 	}
 
 	private planDescriptor<TDescriptorData, TSourceData>(
@@ -191,14 +203,27 @@ export class DescriptorManager<TEntity> {
 			getReporter: () => this.reporter,
 			tryBind: (derivedSources) => bindingProvider(derivedSources),
 			installDescriptor: (descriptor) => {
+				this.descriptors.add(descriptor);
 				getOrInsertComputed(this.descriptorMap, type, () => new Set()).add(descriptor);
 			},
 			uninstallDescriptor: (descriptor) => {
-				this.descriptorMap.get(type)?.delete(descriptor);
+				this.descriptors.delete(descriptor);
+				if (this.descriptorMap.get(type)?.delete(descriptor)) {
+					if (this.descriptorMap.get(type)?.size === 0) this.descriptorMap.delete(type);
+				}
 			},
-			announceAdded: (descriptor) => this.descriptorAddedCallbacks.emit(descriptor),
-			announceUpdated: (descriptor) => this.descriptorUpdatedCallbacks.emit(descriptor),
-			announceDestroyed: (descriptor) => this.descriptorRemovedCallbacks.emit(descriptor),
+			announceAdded: (descriptor) => {
+				this.replicationForwarder?.(descriptor, "added");
+				this.descriptorAddedCallbacks.emit(descriptor);
+			},
+			announceUpdated: (descriptor) => {
+				this.replicationForwarder?.(descriptor, "updated");
+				this.descriptorUpdatedCallbacks.emit(descriptor);
+			},
+			announceDestroyed: (descriptor) => {
+				this.replicationForwarder?.(descriptor, "removed");
+				this.descriptorRemovedCallbacks.emit(descriptor);
+			},
 		};
 	}
 

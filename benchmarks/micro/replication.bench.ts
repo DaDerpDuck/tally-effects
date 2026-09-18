@@ -64,7 +64,7 @@ for (const size of BENCH_SIZES.slice(0, -1)) {
 			async: false,
 			beforeAll() {
 				type = createReplicatedSourceType();
-				agent = new AgentState(undefined, benchmarkReporter);
+				agent = new AgentState(undefined, { reporter: benchmarkReporter });
 				agent.batch(() => {
 					for (let i = 0; i < size; i++) agent.addSource(type, i);
 				});
@@ -104,7 +104,7 @@ for (const size of BENCH_SIZES.slice(0, -1)) {
 			async: false,
 			beforeAll() {
 				const type = createReplicatedSourceType();
-				agent = new AgentState(undefined, benchmarkReporter);
+				agent = new AgentState(undefined, { reporter: benchmarkReporter });
 				receiver = new SourceReceiver(agent, (name) =>
 					name === type.name ? type : undefined
 				);

@@ -79,20 +79,22 @@ function registerHandler(
 }
 
 interface ReplicationFixtureOptions {
+	readonly beforeReplicationSubscribe?: (serverAgent: AgentState<undefined>) => void;
 	readonly descriptorTypes?: readonly DescriptorType<DescriptorData, SourceData>[];
 	readonly relayEvents?: boolean;
 }
 
 function createReplicationFixture({
-	descriptorTypes = [],
+	beforeReplicationSubscribe,
 	relayEvents = true,
+	descriptorTypes = [],
 }: ReplicationFixtureOptions = {}) {
 	const allDescriptorTypes = [ValueDescriptor, ...descriptorTypes];
 	const descriptorTypesByName = new Map(
 		allDescriptorTypes.map((descriptorType) => [descriptorType.name, descriptorType])
 	);
-	const serverAgent = new AgentState(undefined, testReporter);
-	const clientAgent = new AgentState(undefined, testReporter);
+	const serverAgent = new AgentState(undefined, { reporter: testReporter });
+	const clientAgent = new AgentState(undefined, { reporter: testReporter });
 	for (const descriptorType of allDescriptorTypes) {
 		registerHandler(serverAgent, descriptorType);
 		registerHandler(clientAgent, descriptorType);
@@ -100,6 +102,7 @@ function createReplicationFixture({
 	const receiver = new DescriptorReceiver(clientAgent, (name) => descriptorTypesByName.get(name));
 	const emittedEvents: ReplicationEvent[] = [];
 
+	beforeReplicationSubscribe?.(serverAgent);
 	serverAgent.onReplicationEmit((event) => {
 		emittedEvents.push(event);
 		if (relayEvents) receiver.apply([event]);
@@ -305,6 +308,27 @@ describe("Descriptor replication events", () => {
 				{ target: "descriptor", event: { kind: "updated", id: 404, data: null } },
 			])
 		).toThrow("Failed to apply 1 replication event(s)");
+	});
+
+	it("emits added before removed when an earlier added observer destroys the pending Descriptor", () => {
+		const { clientAgent, emittedEvents, serverAgent } = createReplicationFixture({
+			beforeReplicationSubscribe(agent) {
+				agent.onDescriptorAdded((descriptor) => descriptor.destroy());
+			},
+		});
+
+		expect(
+			serverAgent.addDescriptor(ValueDescriptor, { value: 5, sourceKey: "source" })
+		).toBeUndefined();
+		expect(emittedEvents.map((event) => [event.target, event.event.kind])).toEqual([
+			["descriptor", "added"],
+			["descriptor", "removed"],
+		]);
+		expect(serverAgent.getDescriptors().size).toBe(0);
+		expect(serverAgent.getSources(DescriptorSource).size).toBe(0);
+		expect(clientAgent.getDescriptors().size).toBe(0);
+		expect(clientAgent.getSources(DescriptorSource).size).toBe(0);
+		expect(clientAgent.get(Value)).toBe(0);
 	});
 });
 

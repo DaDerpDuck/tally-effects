@@ -25,7 +25,7 @@ const PoisonSource = defineSourceType<PoisonData>({
 });
 
 function createContextFixture(reporter = testReporter) {
-	const tally = new TallyContext(reporter);
+	const tally = new TallyContext({ reporter });
 	const agent = tally.createAgentState(undefined);
 	return { agent, tally };
 }
@@ -164,7 +164,7 @@ describe("tally context descriptor events", () => {
 			name: "ContextDescriptorAddition",
 			source: Output,
 		});
-		const tally = new TallyContext<undefined>(testReporter);
+		const tally = new TallyContext<undefined>({ reporter: testReporter });
 		tally.registerDescriptorHandler(DescriptorType, (context, value) => {
 			const source = context.addSource(value)!;
 			return { source, update: (next) => source.set(next), destroy: () => source.destroy() };
@@ -191,7 +191,7 @@ describe("tally context descriptor events", () => {
 			name: "AfterDestroyDescriptor",
 			source: SourceType,
 		});
-		const tally = new TallyContext<undefined>(testReporter);
+		const tally = new TallyContext<undefined>({ reporter: testReporter });
 		tally.registerDescriptorHandler(DescriptorType, (ctx, data) => {
 			const source = ctx.addSource(data)!;
 			return {
@@ -234,7 +234,7 @@ describe("tally context lifecycle", () => {
 			name: "DestroyedContextDescriptor",
 			source: SourceType,
 		});
-		const tally = new TallyContext<undefined>(testReporter);
+		const tally = new TallyContext<undefined>({ reporter: testReporter });
 		tally.destroy();
 
 		expect(tally.sources).toEqual(new Map());
@@ -263,7 +263,7 @@ describe("tally context lifecycle", () => {
 
 describe("tally context registry", () => {
 	it("registers properties by name", () => {
-		const tally = new TallyContext(testReporter);
+		const tally = new TallyContext({ reporter: testReporter });
 		const booleanProperty = tally.register(
 			defineBooleanProperty({ name: "Boolean", defaultValue: false })
 		);
@@ -281,7 +281,7 @@ describe("tally context registry", () => {
 	});
 
 	it("registers source types by name", () => {
-		const tally = new TallyContext(testReporter);
+		const tally = new TallyContext({ reporter: testReporter });
 		const first = tally.register(
 			defineSourceType({
 				name: "Source1",
@@ -307,7 +307,7 @@ describe("tally context registry", () => {
 	});
 
 	it("allows the same property instance to be registered repeatedly", () => {
-		const tally = new TallyContext(testReporter);
+		const tally = new TallyContext({ reporter: testReporter });
 		const property = defineBooleanProperty({ name: "Boolean", defaultValue: false });
 
 		tally.register(property);
@@ -317,7 +317,7 @@ describe("tally context registry", () => {
 	});
 
 	it("rejects a different property with the same name", () => {
-		const tally = new TallyContext(testReporter);
+		const tally = new TallyContext({ reporter: testReporter });
 		tally.register(defineBooleanProperty({ name: "Boolean", defaultValue: false }));
 
 		expect(() =>
@@ -326,7 +326,7 @@ describe("tally context registry", () => {
 	});
 
 	it("allows the same source type instance to be registered repeatedly", () => {
-		const tally = new TallyContext(testReporter);
+		const tally = new TallyContext({ reporter: testReporter });
 		const sourceType = defineSourceType({
 			name: "Source1",
 			priority: 100,
@@ -340,7 +340,7 @@ describe("tally context registry", () => {
 	});
 
 	it("rejects a different source type with the same name", () => {
-		const tally = new TallyContext(testReporter);
+		const tally = new TallyContext({ reporter: testReporter });
 		tally.register(
 			defineSourceType({
 				name: "Source1",
@@ -377,7 +377,7 @@ describe("agent state replication emission", () => {
 	});
 
 	function createReplicationFixture() {
-		const agent = new AgentState(undefined, testReporter);
+		const agent = new AgentState(undefined, { reporter: testReporter });
 		const callback = vi.fn<(event: ReplicationEvent) => void>();
 		agent.onReplicationEmit(callback);
 		return { agent, callback };
@@ -478,7 +478,7 @@ describe("agent state replication emission", () => {
 
 	it("reports replication serialization failures through the agent reporter", () => {
 		const { reporter, reports } = createTestReporter();
-		const agent = new AgentState(undefined, reporter);
+		const agent = new AgentState(undefined, { reporter });
 		const ThrowingReplicationSource = defineSourceType<number>({
 			name: "ThrowingReplicationSerialization",
 			priority: 100,

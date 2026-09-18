@@ -45,7 +45,9 @@
     "replication"
   ],
   "scripts": {
+    "clean": "node scripts/clean-dist.mjs",
     "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run clean && npm run build",
     "typetest": "tsc --noEmit && tsc -p benchmarks/tsconfig.json",
     "bench:build": "tsc -p benchmarks/tsconfig.build.json",
     "bench:interleave": "npm run bench:build --silent && node benchmarks/.dist/benchmarks/interleave.js",

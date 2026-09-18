@@ -16,9 +16,9 @@
 
 ### Changed
 
-- **[Breaking]** `AgentState` and `TallyContext` now require a `TallyReporter` constructor
-  argument. Supply a host-owned reporter to receive errors from callbacks and best-effort
-  lifecycle cleanup.
+- **[Breaking]** `AgentState` and `TallyContext` now require an options object containing a
+  `TallyReporter`. Supply a host-owned reporter to receive errors from callbacks and best-effort
+  lifecycle cleanup. `TallyContext.createAgentState` accepts a partial agent options override.
 - Public observation callbacks are now best-effort: all listeners run, and their failures are
   reported instead of being synchronously thrown from lifecycle operations.
 - Property resolver and `valueEquals` failures now retain the last successful cached value and

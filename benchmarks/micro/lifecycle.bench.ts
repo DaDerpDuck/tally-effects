@@ -10,7 +10,7 @@ import {
 const sourceLifecycle = createBench("Source lifecycle");
 
 {
-	const agent = new AgentState(undefined, benchmarkReporter);
+	const agent = new AgentState(undefined, { reporter: benchmarkReporter });
 	const type = createSourceType();
 	let source: Source<undefined> | undefined;
 

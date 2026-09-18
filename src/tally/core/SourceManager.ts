@@ -15,6 +15,11 @@ import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
 import { tallyReport, type TallyReporter } from "./TallyReporter.js";
 
+type SourceLifecycleForwarder = (
+	source: Source,
+	operation: "added" | "updated" | "removed"
+) => void;
+
 export type PropertyCallback<T = unknown> = (newValue: T, oldValue: T) => void;
 export type SourceCallback<T = unknown> = (source: Source<T>) => void;
 
@@ -33,6 +38,7 @@ export class SourceManager {
 
 	private readonly resolvedProperties = new Map<AnyProperty, unknown>();
 	private readonly dirtyProperties = new Set<AnyProperty>();
+	private replicationForwarder: SourceLifecycleForwarder | undefined;
 	private mutationDepth = 0;
 
 	constructor(
@@ -107,6 +113,10 @@ export class SourceManager {
 		}
 	}
 
+	setReplicationForwarder(forwarder: SourceLifecycleForwarder) {
+		this.replicationForwarder = forwarder;
+	}
+
 	onPropertyChanged<T>(property: Property<T>, callback: PropertyCallback<T>): Disconnect {
 		let callbacks = this.propertyCallbacks.get(property);
 		if (!callbacks) {
@@ -141,6 +151,7 @@ export class SourceManager {
 		this.sourceAddedCallbacks.clear();
 		this.sourceRemovedCallbacks.clear();
 		this.sourceUpdatedCallbacks.clear();
+		this.replicationForwarder = undefined;
 	}
 
 	destroyAllSources() {
@@ -212,11 +223,23 @@ export class SourceManager {
 				this.markDirty(handles);
 				this.clearModifierHandles(handles);
 				this.sources.delete(source);
-				this.sourceMap.get(source.type)?.delete(source);
+				if (this.sourceMap.get(source.type)?.delete(source)) {
+					if (this.sourceMap.get(source.type)?.size === 0)
+						this.sourceMap.delete(source.type);
+				}
 			},
-			announceAdded: (source) => this.sourceAddedCallbacks.emit(source),
-			announceUpdated: (source) => this.sourceUpdatedCallbacks.emit(source),
-			announceDestroyed: (source) => this.sourceRemovedCallbacks.emit(source),
+			announceAdded: (source) => {
+				this.replicationForwarder?.(source, "added");
+				this.sourceAddedCallbacks.emit(source);
+			},
+			announceUpdated: (source) => {
+				this.replicationForwarder?.(source, "updated");
+				this.sourceUpdatedCallbacks.emit(source);
+			},
+			announceDestroyed: (source) => {
+				this.replicationForwarder?.(source, "removed");
+				this.sourceRemovedCallbacks.emit(source);
+			},
 		};
 	}
 
