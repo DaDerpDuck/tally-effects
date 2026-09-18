@@ -61,6 +61,7 @@ export class TallyContext<TEntity> {
 	private readonly replicationCallbacks: CallbackSet<[AgentState<TEntity>, ReplicationEvent]>;
 
 	private destroyed = false;
+	private attachReplication = false;
 
 	constructor(options: TallyContextOptions) {
 		this.options = { ...options };
@@ -162,9 +163,11 @@ export class TallyContext<TEntity> {
 				this.descriptorUpdatedCallbacks.emit(agent, descriptor)
 			)
 		);
-		disconnectSet.add(
-			agent.onReplicationEmit((event) => this.replicationCallbacks.emit(agent, event))
-		);
+		if (this.attachReplication) {
+			disconnectSet.add(
+				agent.onReplicationEmit((event) => this.replicationCallbacks.emit(agent, event))
+			);
+		}
 		disconnectSet.add(
 			agent.onDestroy(() => {
 				// The agent should already disconnect its callbacks
@@ -239,6 +242,14 @@ export class TallyContext<TEntity> {
 	 */
 	onReplicationEmit(callback: ReplicationCallback<TEntity>): Disconnect {
 		if (this.destroyed) return () => {};
+		if (!this.attachReplication) {
+			this.attachReplication = true;
+			this.agentConnections.forEach((disconnectSet, agent) => {
+				disconnectSet.add(
+					agent.onReplicationEmit((event) => this.replicationCallbacks.emit(agent, event))
+				);
+			});
+		}
 		return this.replicationCallbacks.add(callback);
 	}
 
