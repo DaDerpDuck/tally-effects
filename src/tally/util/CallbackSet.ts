@@ -33,6 +33,7 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 	}
 
 	emit(...args: TArgs): void {
+		if (this.subscriptions.size === 0) return;
 		const subscriptions = [...this.subscriptions];
 		for (const subscription of subscriptions) {
 			if (!subscription.connected) continue;
