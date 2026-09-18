@@ -28,6 +28,11 @@ type BindingProvider<TDescriptorData, TSourceData> = (
 	derivedSources: Source[]
 ) => DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 
+type DescriptorLifecycleForwarder = (
+	source: AnyDescriptor,
+	operation: "added" | "updated" | "removed"
+) => void;
+
 export class DescriptorManager<TEntity> {
 	private static readonly EmptySet: ReadonlySet<unknown> = new Set();
 
@@ -43,6 +48,8 @@ export class DescriptorManager<TEntity> {
 	private readonly descriptorUpdatedCallbacks: CallbackSet<
 		[descriptor: Descriptor<unknown, unknown>]
 	>;
+
+	private replicationForwarder: DescriptorLifecycleForwarder | undefined;
 
 	constructor(
 		private readonly reporter: TallyReporter,
@@ -123,6 +130,10 @@ export class DescriptorManager<TEntity> {
 		>;
 	}
 
+	setReplicationForwarder(forwarder: DescriptorLifecycleForwarder) {
+		this.replicationForwarder = forwarder;
+	}
+
 	onDescriptorAdded(callback: DescriptorCallback): Disconnect {
 		return this.descriptorAddedCallbacks.add(callback);
 	}
@@ -146,6 +157,7 @@ export class DescriptorManager<TEntity> {
 		this.descriptorAddedCallbacks.clear();
 		this.descriptorRemovedCallbacks.clear();
 		this.descriptorUpdatedCallbacks.clear();
+		this.replicationForwarder = undefined;
 	}
 
 	private planDescriptor<TDescriptorData, TSourceData>(
@@ -196,9 +208,18 @@ export class DescriptorManager<TEntity> {
 			uninstallDescriptor: (descriptor) => {
 				this.descriptorMap.get(type)?.delete(descriptor);
 			},
-			announceAdded: (descriptor) => this.descriptorAddedCallbacks.emit(descriptor),
-			announceUpdated: (descriptor) => this.descriptorUpdatedCallbacks.emit(descriptor),
-			announceDestroyed: (descriptor) => this.descriptorRemovedCallbacks.emit(descriptor),
+			announceAdded: (descriptor) => {
+				this.replicationForwarder?.(descriptor, "added");
+				this.descriptorAddedCallbacks.emit(descriptor);
+			},
+			announceUpdated: (descriptor) => {
+				this.replicationForwarder?.(descriptor, "updated");
+				this.descriptorUpdatedCallbacks.emit(descriptor);
+			},
+			announceDestroyed: (descriptor) => {
+				this.replicationForwarder?.(descriptor, "removed");
+				this.descriptorRemovedCallbacks.emit(descriptor);
+			},
 		};
 	}
 

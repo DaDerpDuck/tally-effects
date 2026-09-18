@@ -243,17 +243,11 @@ export class AgentState<TEntity> {
 
 		if (!this.replicationEmitter) {
 			const emitter = new ReplicationEmitter(this.reporter);
-			this.onSourceAdded((source) => emitter.forwardSourceReplication(source, "added"));
-			this.onSourceUpdated((source) => emitter.forwardSourceReplication(source, "updated"));
-			this.onSourceRemoved((source) => emitter.forwardSourceReplication(source, "removed"));
-			this.onDescriptorAdded((descriptor) =>
-				emitter.forwardDescriptorReplication(descriptor, "added")
+			this.sources.setReplicationForwarder((source, operation) =>
+				emitter.forwardSourceReplication(source, operation)
 			);
-			this.onDescriptorUpdated((descriptor) =>
-				emitter.forwardDescriptorReplication(descriptor, "updated")
-			);
-			this.onDescriptorRemoved((descriptor) =>
-				emitter.forwardDescriptorReplication(descriptor, "removed")
+			this.descriptors.setReplicationForwarder((descriptor, operation) =>
+				emitter.forwardDescriptorReplication(descriptor, operation)
 			);
 			this.replicationEmitter = emitter;
 		}

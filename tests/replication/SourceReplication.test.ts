@@ -36,11 +36,13 @@ function defineReplicatedSource(name: string) {
 const ValueSource = defineReplicatedSource("ReplicatedValueSource");
 
 interface ReplicationFixtureOptions {
+	readonly beforeReplicationSubscribe?: (serverAgent: AgentState<undefined>) => void;
 	readonly relayEvents?: boolean;
 	readonly sourceTypes?: readonly SourceType<SourceData>[];
 }
 
 function createReplicationFixture({
+	beforeReplicationSubscribe,
 	relayEvents = true,
 	sourceTypes = [],
 }: ReplicationFixtureOptions = {}) {
@@ -53,6 +55,7 @@ function createReplicationFixture({
 	const receiver = new SourceReceiver(clientAgent, (name) => sourceTypesByName.get(name));
 	const emittedEvents: ReplicationEvent[] = [];
 
+	beforeReplicationSubscribe?.(serverAgent);
 	serverAgent.onReplicationEmit((event) => {
 		emittedEvents.push(event);
 		if (relayEvents) receiver.apply([event]);
@@ -248,6 +251,23 @@ describe("Source replication events", () => {
 		expect(() =>
 			receiver.apply([{ target: "source", event: { kind: "updated", id: 404, data: null } }])
 		).toThrow("Failed to apply 1 replication event(s)");
+	});
+
+	it("emits added before removed when an earlier added observer destroys the pending Source", () => {
+		const { clientAgent, emittedEvents, serverAgent } = createReplicationFixture({
+			beforeReplicationSubscribe(agent) {
+				agent.onSourceAdded((source) => source.destroy());
+			},
+		});
+
+		expect(serverAgent.addSource(ValueSource, { value: 5 })).toBeUndefined();
+		expect(emittedEvents.map((event) => [event.target, event.event.kind])).toEqual([
+			["source", "added"],
+			["source", "removed"],
+		]);
+		expect(serverAgent.getSources().size).toBe(0);
+		expect(clientAgent.getSources().size).toBe(0);
+		expect(clientAgent.get(Value)).toBe(0);
 	});
 });
 
