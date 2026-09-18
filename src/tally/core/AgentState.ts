@@ -305,7 +305,7 @@ export class AgentState<TEntity> {
 	}
 
 	/**
-	 * Destroys all active Sources and Descriptors, then disconnects all callbacks.
+	 * Disconnects all callbacks and destroys all active Sources and Descriptors
 	 *
 	 * This operation is terminal and future mutations will throw an error.
 	 */
