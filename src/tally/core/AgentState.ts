@@ -2,12 +2,14 @@ import { type Property } from "../property/Property.js";
 import type { ReplicationEvent } from "../replication/ReplicationEvent.js";
 import { AdmissionCoordinator } from "../state/AdmissionCoordinator.js";
 import type { AnyDescriptor, Descriptor } from "../state/descriptor/Descriptor.js";
+import { DescriptorBuilder } from "../state/descriptor/DescriptorBuilder.js";
 import type { DescriptorHandler } from "../state/descriptor/DescriptorHandler.js";
 import type { DescriptorOption } from "../state/descriptor/DescriptorOption.js";
 import { DescriptorType } from "../state/descriptor/DescriptorType.js";
 import { DuplicationIndex } from "../state/duplication/DuplicationIndex.js";
 import { DuplicationResolver } from "../state/duplication/DuplicationResolver.js";
 import type { Source } from "../state/source/Source.js";
+import { SourceBuilder } from "../state/source/SourceBuilder.js";
 import type { SourceOption } from "../state/source/SourceOption.js";
 import { SourceType } from "../state/source/SourceType.js";
 import { CallbackSet } from "../util/CallbackSet.js";
@@ -103,6 +105,16 @@ export class AgentState<TEntity> {
 	}
 
 	/**
+	 * Creates a Source builder for this AgentState and type.
+	 * Its configured options apply to every subsequent {@link SourceBuilder.add}
+	 * call. Adding through the builder uses the same behavior as
+	 * {@link addSource}.
+	 */
+	makeSource<TData>(type: SourceType<TData>): SourceBuilder<TData> {
+		return new SourceBuilder(type, (type, data, option) => this.addSource(type, data, option));
+	}
+
+	/**
 	 * Adds a Descriptor of the given type to this AgentState. A handler must
 	 * be registered prior to calling this method.
 	 *
@@ -111,6 +123,16 @@ export class AgentState<TEntity> {
 	 * @returns The created Descriptor, or `undefined` if the handler
 	 * rejects creation.
 	 */
+	addDescriptor<TDescriptorData extends undefined, TSourceData>(
+		type: DescriptorType<TDescriptorData, TSourceData>,
+		data?: TDescriptorData,
+		options?: DescriptorOption
+	): Descriptor<TDescriptorData, TSourceData> | undefined;
+	addDescriptor<TDescriptorData, TSourceData>(
+		type: DescriptorType<TDescriptorData, TSourceData>,
+		data: TDescriptorData,
+		options?: DescriptorOption
+	): Descriptor<TDescriptorData, TSourceData> | undefined;
 	addDescriptor<TDescriptorData, TSourceData>(
 		type: DescriptorType<TDescriptorData, TSourceData>,
 		data: TDescriptorData,
@@ -118,6 +140,20 @@ export class AgentState<TEntity> {
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
 		this.assertAlive();
 		return this.descriptors.addDescriptor(this, type, data, options);
+	}
+
+	/**
+	 * Creates a Descriptor builder for this AgentState and type.
+	 * Its configured options apply to every subsequent {@link DescriptorBuilder.add}
+	 * call. Adding through the builder uses the same behavior as
+	 * {@link addDescriptor}.
+	 */
+	makeDescriptor<TDescriptorData, TSourceData>(
+		type: DescriptorType<TDescriptorData, TSourceData>
+	): DescriptorBuilder<TDescriptorData, TSourceData> {
+		return new DescriptorBuilder(type, (type, data, option) =>
+			this.addDescriptor(type, data, option)
+		);
 	}
 
 	/**

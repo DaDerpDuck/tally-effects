@@ -120,6 +120,28 @@ const Poisoned = defineSourceType<PoisonData>({
 });
 ```
 
+#### Priorities and keys
+
+`AgentState.makeSource()` creates a fluent, agent-scoped builder for one
+`SourceType`. Use it when setting a Source's priority or duplication key:
+
+```ts
+const poison = agent
+    .makeSource(Poisoned)
+    .priority(200) // overrides Poisoned.priority for this builder
+    .key("poison:spider-7")
+    .add({ regenMultiplier: 0.5 });
+```
+
+`key()` selects the duplication bucket. `provenance()` is an advanced ordering
+and replication setting; leave it unset for ordinary local state, and let
+replication receivers set it for received state.
+
+Builders are mutable and reusable: their configured settings remain in effect
+for every later `.add()` call. Create a new builder, or change its settings,
+when the next Source needs different values. `.add()` returns `undefined` when
+a duplicate policy rejects or reconciles the new Source.
+
 ### Priorities and Deterministic Ordering
 
 Modifiers are resolved deterministically using a lexicographic ordering key: Source
@@ -140,12 +162,19 @@ conflicting duplication bucket. The policies are listed below:
 | `reconcile` | let application code merge incoming data into the existing instance |
 
 By default, a type is its own duplication domain and all of its instances use the
-unkeyed bucket. Pass a string `key` to partition that domain. Different keys do not
-conflict, while `undefined` remains the unkeyed bucket:
+unkeyed bucket. Use a builder's `key()` method to partition that domain. Different
+keys do not conflict, while `undefined` remains the unkeyed bucket:
 
 ```ts
-const first = agent.addSource(Shield, { amount: 10 }, { key: "left-hand" });
-const second = agent.addSource(Shield, { amount: 20 }, { key: "right-hand" });
+const first = agent
+    .makeSource(Shield)
+    .key("left-hand")
+    .add({ amount: 10 });
+
+const second = agent
+    .makeSource(Shield)
+    .key("right-hand")
+    .add({ amount: 20 });
 ```
 
 Use a `DuplicationGroup` when different SourceTypes or DescriptorTypes should share a
@@ -238,6 +267,23 @@ agent.registerDescriptorHandler(
 
 Register descriptor handlers before adding their Descriptor. When using a `TallyContext`,
 register them before creating AgentStates so each agent receives the expected handler.
+
+#### Descriptor keys
+
+`AgentState.makeDescriptor()` creates a builder for one `DescriptorType`. Use it when setting a Descriptor's duplication key:
+
+```ts
+const fear = agent
+    .makeDescriptor(ProximityFear)
+    .key("fear:nearby-wolf")
+    .add(proximityData);
+```
+
+Descriptor builders support `key()` and the advanced `provenance()` setting.
+Like Source builders, they retain their settings across `.add()` calls, and
+`.add()` returns `undefined` when descriptor admission does not create an
+instance (for example, a duplicate policy rejects it or its handler declines
+to bind it).
 
 ### Replication
 

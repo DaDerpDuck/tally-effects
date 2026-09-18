@@ -13,6 +13,8 @@
 - Added `AgentState.onReplicationEmit()`. `TallyContext`
   continues to forward events from the AgentStates it creates as a convenience for shared
   configuration and observation.
+- Added fluent `AgentState.makeSource()` and `AgentState.makeDescriptor()` builders for
+  configuring per-instance priorities and duplication keys before creation.
 
 ### Changed
 
