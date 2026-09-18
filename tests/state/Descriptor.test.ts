@@ -539,4 +539,23 @@ describe("descriptor lifecycle", () => {
 		expect(agent.getSources(DescriptorSource).size).toBe(0);
 		expect(agent.get(Value)).toBe(0);
 	});
+
+	it("destroys a descriptor admitted by final property resolution during bulk teardown", () => {
+		const { agent } = createAgentFixture();
+		agent.addDescriptor(ValueDescriptor, { value: 1 });
+
+		let admittedDuringTeardown = false;
+		agent.onPropertyChanged(Value, (value) => {
+			if (value !== 0 || admittedDuringTeardown) return;
+			admittedDuringTeardown = true;
+			agent.addDescriptor(ValueDescriptor, { value: 1 });
+		});
+
+		agent.destroyAllDescriptors();
+
+		expect(admittedDuringTeardown).toBe(true);
+		expect(agent.getDescriptors().size).toBe(0);
+		expect(agent.getSources(DescriptorSource).size).toBe(0);
+		expect(agent.get(Value)).toBe(0);
+	});
 });

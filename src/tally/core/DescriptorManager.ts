@@ -147,7 +147,8 @@ export class DescriptorManager<TEntity> {
 	}
 
 	destroyAllDescriptors() {
-		this.sources.batch(() => this.descriptors.forEach((descriptor) => descriptor.destroy()));
+		// do not batch: reentrant descriptors added by property observers become untracked
+		this.descriptors.forEach((descriptor) => descriptor.destroy());
 		this.descriptors.clear();
 		this.descriptorMap.clear();
 	}
