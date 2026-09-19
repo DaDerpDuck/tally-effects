@@ -45,9 +45,11 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 	private readonly destroyCallbacks: CallbackSet<[self: Source<TData>]>;
 	private ownership: RuntimeOwnership;
 	private data: TData;
+	private pendingData: TData | undefined;
+	private hasPendingData = false;
+	private updating = false;
 	private contributions: SourceContribution | undefined;
 	private handles: ModifierHandle[] = [];
-	private dataRevision = 0;
 	private installed = false;
 	private announced = false;
 
@@ -82,11 +84,16 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 			throw new Error("Cannot prepare a non-admitting runtime");
 		const lease = this.ownership.lease;
 		while (!lease.isTerminal()) {
-			const revision = this.dataRevision;
+			if (this.hasPendingData) {
+				this.data = this.pendingData!;
+				this.pendingData = undefined;
+				this.hasPendingData = false;
+			}
+
 			const contributions = this.host.contributeModifiers(this.type, this.data);
 			if (lease.isTerminal()) return;
 
-			if (this.dataRevision !== revision) continue;
+			if (this.hasPendingData) continue;
 
 			this.contributions = contributions;
 			return;
@@ -145,50 +152,64 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 	set(data: TData): void {
 		this.assertAlive();
-		if (this.type.dataEquals(this.data, data)) return;
+		const currentData = this.hasPendingData ? this.pendingData! : this.data;
+		if (this.type.dataEquals(currentData, data)) return;
 
-		const oldData = this.data;
-		const oldContributions = this.contributions;
-		this.data = data;
-		this.dataRevision++;
-		const revision = this.dataRevision;
+		this.pendingData = data;
+		this.hasPendingData = true;
+		if (!this.installed || this.updating) return;
 
-		if (!this.installed) return;
+		this.drainPendingUpdates();
+	}
 
+	private drainPendingUpdates() {
+		let committedData = this.data;
+		let committedContributions = this.contributions;
 		try {
-			// Reentry may have called set on this source.
-			while (!this.isInactive()) {
-				const contributionRevision = this.dataRevision;
+			this.updating = true;
+			do {
+				const nextData = this.pendingData!;
+				this.pendingData = undefined;
+				this.hasPendingData = false;
+
+				if (this.type.dataEquals(this.data, nextData)) continue;
+
+				this.data = nextData;
+
 				const nextContributions = this.host.contributeModifiers(this.type, this.data);
 				if (this.isInactive()) return;
+				if (this.hasPendingData) continue;
 
-				if (this.dataRevision !== contributionRevision) continue;
-
+				this.handles = this.host.changeModifiers(
+					this.instance,
+					this.handles,
+					nextContributions
+				);
 				this.contributions = nextContributions;
-				break;
-			}
+				committedData = this.data;
+				committedContributions = nextContributions;
 
-			this.handles = this.host.changeModifiers(
-				this.instance,
-				this.handles,
-				this.contributions!
-			);
+				this.host.resolveModifiers();
+
+				if (this.isInactive()) return;
+				if (this.hasPendingData) continue;
+				this.updateCallbacks.emit(this.instance);
+
+				if (this.isInactive()) return;
+				if (this.hasPendingData) continue;
+				this.host.announceUpdated(this.instance);
+			} while (!this.isInactive() && this.hasPendingData);
 		} catch (error) {
-			if (!this.isInactive() && this.dataRevision === revision) {
-				this.data = oldData;
-				this.dataRevision++;
-				this.contributions = oldContributions;
+			if (!this.isInactive()) {
+				this.data = committedData;
+				this.contributions = committedContributions;
 			}
+			this.pendingData = undefined;
+			this.hasPendingData = false;
 			throw error;
+		} finally {
+			this.updating = false;
 		}
-
-		this.host.resolveModifiers();
-
-		if (this.isInactive()) return;
-		this.updateCallbacks.emit(this.instance);
-
-		if (this.isInactive()) return;
-		this.host.announceUpdated(this.instance);
 	}
 
 	destroy(): void {

@@ -41,7 +41,8 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	private ownership: RuntimeOwnership;
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
 	private data: TDescriptorData;
-	private dataRevision = 0;
+	private pendingData: TDescriptorData | undefined;
+	private hasPendingData = false;
 	private updating = false;
 	private installed = false;
 	private announced = false;
@@ -147,27 +148,42 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 	set(data: TDescriptorData) {
 		this.assertAlive();
-		if (this.type.dataEquals(this.data, data)) return;
+		const currentData = this.hasPendingData ? this.pendingData! : this.data;
+		if (this.type.dataEquals(currentData, data)) return;
 
-		this.data = data;
-		this.dataRevision++;
-		if (this.updating) return;
+		this.pendingData = data;
+		this.hasPendingData = true;
+		if (!this.installed || this.updating) return;
 
+		this.drainPendingUpdates();
+	}
+
+	private drainPendingUpdates() {
 		try {
 			this.updating = true;
-			while (!this.isInactive()) {
-				const revision = this.dataRevision;
+			do {
+				const nextData = this.pendingData!;
+				this.pendingData = undefined;
+				this.hasPendingData = false;
+
+				if (this.type.dataEquals(this.data, nextData)) continue;
+
+				this.data = nextData;
 				this.binding?.update(this.data);
 				if (this.isInactive()) return;
-				if (this.dataRevision !== revision) continue;
-				break;
-			}
+				if (this.hasPendingData) continue;
 
-			if (this.isInactive()) return;
-			this.updateCallbacks.emit(this.instance);
+				this.updateCallbacks.emit(this.instance);
 
-			if (this.isInactive()) return;
-			this.host.announceUpdated(this.instance);
+				if (this.isInactive()) return;
+				if (this.hasPendingData) continue;
+
+				this.host.announceUpdated(this.instance);
+			} while (!this.isInactive() && this.hasPendingData);
+		} catch (error) {
+			this.pendingData = undefined;
+			this.hasPendingData = false;
+			throw error;
 		} finally {
 			this.updating = false;
 		}
