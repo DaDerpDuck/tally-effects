@@ -1,4 +1,4 @@
-export const TALLY_VERSION = "0.2.0" as const;
+export const TALLY_VERSION = "0.3.0" as const;
 
 // Core
 export { AgentState, type AgentStateOptions } from "./tally/core/AgentState.js";
@@ -42,7 +42,10 @@ export {
 } from "./tally/property/PropertyDefinition.js";
 
 // State behavior
-export type { DuplicatePolicy } from "./tally/state/duplication/DuplicatePolicy.js";
+export type {
+	DuplicatePolicy,
+	ResolvedDuplicatePolicy,
+} from "./tally/state/duplication/DuplicatePolicy.js";
 export {
 	defineDuplicationGroup,
 	DuplicationGroup,

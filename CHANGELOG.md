@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-18
+
 ### Added
 
 - Added the exported structured `TallyReport` and `TallyReporter` contracts for host-owned
@@ -15,6 +17,7 @@
   configuration and observation.
 - Added fluent `AgentState.makeSource()` and `AgentState.makeDescriptor()` builders for
   configuring per-instance priorities and duplication keys before creation.
+- Added a `TALLY_VERSION` runtime version variable.
 
 ### Changed
 

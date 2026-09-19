@@ -192,6 +192,79 @@ describe("descriptor lifecycle", () => {
 		expect(announced).toHaveBeenCalledOnce();
 	});
 
+	it("keeps descriptor state aligned when an update observer reenters", () => {
+		const Output = defineSourceType<number>({
+			name: "ObserverReentrantDescriptorOutput",
+			priority: 100,
+			contribute: (value) => [Value.add(value)],
+		});
+		const ReentrantDescriptor = defineDescriptorType<number, number>({
+			name: "ObserverReentrantDescriptor",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
+		agent.registerDescriptorHandler(ReentrantDescriptor, (context, value) => {
+			const source = context.addSource(value)!;
+			return {
+				source,
+				update: (next) => source.set(next),
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(ReentrantDescriptor, 1)!;
+		const observedValues: number[] = [];
+		const managerValues: number[] = [];
+		descriptor.onUpdate((self) => {
+			observedValues.push(self.get());
+			expect(self.getSource().get()).toBe(self.get());
+			if (self.get() === 2) self.set(3);
+		});
+		agent.onDescriptorUpdated(() => managerValues.push(descriptor.get()));
+
+		descriptor.set(2);
+
+		expect(descriptor.get()).toBe(3);
+		expect(descriptor.getSource().get()).toBe(3);
+		expect(agent.get(Value)).toBe(3);
+		expect(observedValues).toEqual([2, 3]);
+		expect(managerValues).toEqual([3]);
+	});
+
+	it("processes an AgentState descriptor observer update after the active event", () => {
+		const Output = defineSourceType<number>({
+			name: "ManagerObserverReentrantDescriptorOutput",
+			priority: 100,
+			contribute: (value) => [Value.add(value)],
+		});
+		const ReentrantDescriptor = defineDescriptorType<number, number>({
+			name: "ManagerObserverReentrantDescriptor",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
+		agent.registerDescriptorHandler(ReentrantDescriptor, (context, value) => {
+			const source = context.addSource(value)!;
+			return {
+				source,
+				update: (next) => source.set(next),
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(ReentrantDescriptor, 1)!;
+		const observedValues: number[] = [];
+		agent.onDescriptorUpdated(() => {
+			observedValues.push(descriptor.get());
+			expect(descriptor.getSource().get()).toBe(descriptor.get());
+			if (descriptor.get() === 2) descriptor.set(3);
+		});
+
+		descriptor.set(2);
+
+		expect(descriptor.get()).toBe(3);
+		expect(descriptor.getSource().get()).toBe(3);
+		expect(agent.get(Value)).toBe(3);
+		expect(observedValues).toEqual([2, 3]);
+	});
+
 	it("propagates binding update failures without announcing an update", () => {
 		const Output = defineSourceType<number>({
 			name: "ThrowingBindingUpdateOutput",
@@ -223,6 +296,47 @@ describe("descriptor lifecycle", () => {
 		expect(source.get()).toBe(1);
 		expect(agent.get(Value)).toBe(1);
 		expect(updates).not.toHaveBeenCalled();
+	});
+
+	it("retries an unchanged descriptor value after its binding update fails", () => {
+		const Output = defineSourceType<number>({
+			name: "RetryingBindingUpdateOutput",
+			priority: 100,
+			contribute: (value) => [Value.add(value)],
+		});
+		const RetryingBindingUpdate = defineDescriptorType<number, number>({
+			name: "RetryingBindingUpdate",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
+		let shouldThrow = true;
+		agent.registerDescriptorHandler(RetryingBindingUpdate, (context, value) => {
+			const source = context.addSource(value)!;
+			return {
+				source,
+				update(next) {
+					if (shouldThrow) throw new Error("binding update failed");
+					source.set(next);
+				},
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(RetryingBindingUpdate, 1)!;
+		const updated = vi.fn();
+		descriptor.onUpdate(updated);
+
+		expect(() => descriptor.set(2)).toThrow("binding update failed");
+		expect(descriptor.get()).toBe(2);
+		expect(descriptor.getSource().get()).toBe(1);
+		expect(updated).not.toHaveBeenCalled();
+
+		shouldThrow = false;
+		descriptor.set(2);
+
+		expect(descriptor.get()).toBe(2);
+		expect(descriptor.getSource().get()).toBe(2);
+		expect(agent.get(Value)).toBe(2);
+		expect(updated).toHaveBeenCalledOnce();
 	});
 
 	it("uses Object.is as the default descriptor data equality", () => {

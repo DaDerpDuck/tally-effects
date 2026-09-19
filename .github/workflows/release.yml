@@ -14,7 +14,21 @@ permissions:
   contents: read
 
 jobs:
+  release-source:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tagged commit is on main
+        run: |
+          RELEASE_COMMIT=$(git rev-parse "${GITHUB_SHA}^{commit}")
+          git merge-base --is-ancestor "$RELEASE_COMMIT" origin/main
+
   verify:
+    needs: release-source
     runs-on: ubuntu-latest
 
     strategy:
