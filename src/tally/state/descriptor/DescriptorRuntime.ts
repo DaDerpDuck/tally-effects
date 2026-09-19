@@ -43,6 +43,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	private data: TDescriptorData;
 	private pendingData: TDescriptorData | undefined;
 	private hasPendingData = false;
+	private bindingDirty = false;
 	private updating = false;
 	private installed = false;
 	private announced = false;
@@ -149,7 +150,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	set(data: TDescriptorData) {
 		this.assertAlive();
 		const currentData = this.hasPendingData ? this.pendingData! : this.data;
-		if (this.type.dataEquals(currentData, data)) return;
+		if (!this.bindingDirty && this.type.dataEquals(currentData, data)) return;
 
 		this.pendingData = data;
 		this.hasPendingData = true;
@@ -166,10 +167,12 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 				this.pendingData = undefined;
 				this.hasPendingData = false;
 
-				if (this.type.dataEquals(this.data, nextData)) continue;
+				if (!this.bindingDirty && this.type.dataEquals(this.data, nextData)) continue;
 
 				this.data = nextData;
+				this.bindingDirty = true;
 				this.binding?.update(this.data);
+				this.bindingDirty = false;
 				if (this.isInactive()) return;
 				if (this.hasPendingData) continue;
 

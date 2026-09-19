@@ -298,6 +298,47 @@ describe("descriptor lifecycle", () => {
 		expect(updates).not.toHaveBeenCalled();
 	});
 
+	it("retries an unchanged descriptor value after its binding update fails", () => {
+		const Output = defineSourceType<number>({
+			name: "RetryingBindingUpdateOutput",
+			priority: 100,
+			contribute: (value) => [Value.add(value)],
+		});
+		const RetryingBindingUpdate = defineDescriptorType<number, number>({
+			name: "RetryingBindingUpdate",
+			source: Output,
+		});
+		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
+		let shouldThrow = true;
+		agent.registerDescriptorHandler(RetryingBindingUpdate, (context, value) => {
+			const source = context.addSource(value)!;
+			return {
+				source,
+				update(next) {
+					if (shouldThrow) throw new Error("binding update failed");
+					source.set(next);
+				},
+				destroy: () => source.destroy(),
+			};
+		});
+		const descriptor = agent.addDescriptor(RetryingBindingUpdate, 1)!;
+		const updated = vi.fn();
+		descriptor.onUpdate(updated);
+
+		expect(() => descriptor.set(2)).toThrow("binding update failed");
+		expect(descriptor.get()).toBe(2);
+		expect(descriptor.getSource().get()).toBe(1);
+		expect(updated).not.toHaveBeenCalled();
+
+		shouldThrow = false;
+		descriptor.set(2);
+
+		expect(descriptor.get()).toBe(2);
+		expect(descriptor.getSource().get()).toBe(2);
+		expect(agent.get(Value)).toBe(2);
+		expect(updated).toHaveBeenCalledOnce();
+	});
+
 	it("uses Object.is as the default descriptor data equality", () => {
 		const { agent } = createAgentFixture();
 		const initial = { value: 5 };
