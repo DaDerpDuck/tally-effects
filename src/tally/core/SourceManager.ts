@@ -13,6 +13,7 @@ import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
+import type { AgentMutationGate } from "./AgentMutationGate.js";
 import { tallyReport, type TallyReporter } from "./TallyReporter.js";
 
 type SourceLifecycleForwarder = (
@@ -44,6 +45,7 @@ export class SourceManager {
 	constructor(
 		private readonly reporter: TallyReporter,
 		private readonly counter: IdCounter,
+		private readonly mutationGate: AgentMutationGate,
 		private readonly admission: AdmissionCoordinator
 	) {
 		this.sourceAddedCallbacks = new CallbackSet(reporter, (source) => ({
@@ -68,6 +70,7 @@ export class SourceManager {
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
+		this.mutationGate.assertMutationAllowed();
 		let receipt: AdmissionReceipt<Source<TData>> | undefined;
 		try {
 			this.batch(
@@ -182,6 +185,7 @@ export class SourceManager {
 
 				return new SourceRuntime(
 					lease,
+					this.mutationGate,
 					{ id, type, priority, key, provenance, data },
 					this.sourceHost
 				);
@@ -260,9 +264,8 @@ export class SourceManager {
 			// Failures are reported and retried after a later mutation.
 			let newResolution: unknown;
 			try {
-				newResolution = property.resolve(
-					property.defaultValue,
-					this.modifierRegistry.get(property)
+				newResolution = this.mutationGate.evaluate("Property.resolve", () =>
+					property.resolve(property.defaultValue, this.modifierRegistry.get(property))
 				);
 			} catch (error) {
 				this.dirtyProperties.add(property);
@@ -281,7 +284,10 @@ export class SourceManager {
 			const oldResolution = this.get(property);
 			let changed: boolean;
 			try {
-				changed = !property.valueEquals(oldResolution, newResolution);
+				changed = this.mutationGate.evaluate(
+					"Property.valueEquals",
+					() => !property.valueEquals(oldResolution, newResolution)
+				);
 			} catch (error) {
 				this.dirtyProperties.add(property);
 				tallyReport(this.reporter, {
@@ -305,7 +311,7 @@ export class SourceManager {
 	}
 
 	private contributeModifiers<TData>(type: SourceType<TData>, data: TData): SourceContribution {
-		return type.contribute(data);
+		return this.mutationGate.evaluate("SourceType.contribute", () => type.contribute(data));
 	}
 
 	private applyModifiers(
@@ -317,15 +323,18 @@ export class SourceManager {
 
 		try {
 			for (let i = 0; i < contribution.length; i++) {
-				handles[i] = contribution[i]!.applyTo(this.modifierRegistry, {
-					priority,
-					domain:
-						provenance.domain === "local" || provenance.domain === "descriptor-local"
-							? OrderingDomain.local
-							: OrderingDomain.authoritative,
-					sequence: provenance.sequence,
-					modifierIndex: i,
-				});
+				handles[i] = this.mutationGate.evaluate("ModifierHandle.applyTo", () =>
+					contribution[i]!.applyTo(this.modifierRegistry, {
+						priority,
+						domain:
+							provenance.domain === "local" ||
+							provenance.domain === "descriptor-local"
+								? OrderingDomain.local
+								: OrderingDomain.authoritative,
+						sequence: provenance.sequence,
+						modifierIndex: i,
+					})
+				);
 			}
 
 			return handles;

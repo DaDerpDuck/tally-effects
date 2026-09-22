@@ -1,3 +1,4 @@
+import type { AgentMutationGate } from "../core/AgentMutationGate.js";
 import type { AdmissionPlan } from "./AdmissionPlan.js";
 import type { AdmissionRuntime } from "./AdmissionRuntime.js";
 import { AdmissionTransaction } from "./AdmissionTransaction.js";
@@ -26,7 +27,8 @@ export class AdmissionCoordinator {
 
 	constructor(
 		private readonly index: DuplicationIndex,
-		private readonly resolver: DuplicationResolver
+		private readonly resolver: DuplicationResolver,
+		private readonly mutationGate: AgentMutationGate
 	) {}
 
 	admit<
@@ -62,11 +64,15 @@ export class AdmissionCoordinator {
 						const state = entry.state;
 
 						if (state.kind === "pending") {
-							return policy.rank(state.admission.pendingCandidate().get());
+							return this.mutationGate.evaluate("duplication policy rank", () =>
+								policy.rank(state.admission.pendingCandidate().get())
+							);
 						}
 
 						if (state.kind === "live") {
-							return policy.rank(state.candidate.get());
+							return this.mutationGate.evaluate("duplication policy rank", () =>
+								policy.rank(state.candidate.get())
+							);
 						}
 
 						throw new Error("Cannot rank a removed duplication entry");

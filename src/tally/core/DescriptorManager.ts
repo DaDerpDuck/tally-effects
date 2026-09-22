@@ -16,6 +16,7 @@ import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
+import type { AgentMutationGate } from "./AgentMutationGate.js";
 import type { AgentState } from "./AgentState.js";
 import type { SourceManager } from "./SourceManager.js";
 import type { TallyReporter } from "./TallyReporter.js";
@@ -55,6 +56,7 @@ export class DescriptorManager<TEntity> {
 	constructor(
 		private readonly reporter: TallyReporter,
 		private readonly counter: IdCounter,
+		private readonly mutationGate: AgentMutationGate,
 		private readonly admission: AdmissionCoordinator,
 		private readonly sources: SourceManager
 	) {
@@ -81,6 +83,7 @@ export class DescriptorManager<TEntity> {
 		data: TDescriptorData,
 		options?: DescriptorOption
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
+		this.mutationGate.assertMutationAllowed();
 		const handler = this.descriptorHandlers.get(type);
 		if (!handler)
 			throw new Error(
@@ -185,6 +188,7 @@ export class DescriptorManager<TEntity> {
 
 				return new DescriptorRuntime(
 					lease,
+					this.mutationGate,
 					{ id, type, key, provenance, data },
 					this.createHost(
 						type,

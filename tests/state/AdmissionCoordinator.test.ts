@@ -3,6 +3,7 @@ import { AdmissionCoordinator } from "../../src/tally/state/AdmissionCoordinator
 import type { AdmissionPlan } from "../../src/tally/state/AdmissionPlan.js";
 import type { AdmissionRuntime } from "../../src/tally/state/AdmissionRuntime.js";
 import { AdmissionTransaction } from "../../src/tally/state/AdmissionTransaction.js";
+import { AgentMutationGate } from "../../src/tally/core/AgentMutationGate.js";
 import type {
 	DuplicableType,
 	DuplicationCandidate,
@@ -95,7 +96,8 @@ describe("admission coordinator recovery", () => {
 			},
 		};
 		const index = new DuplicationIndex();
-		const resolver = new DuplicationResolver(index);
+		const mutationGate = new AgentMutationGate();
+		const resolver = new DuplicationResolver(index, mutationGate);
 
 		const first = reservePending(index, group, createPlan(type, 1));
 		const second = reservePending(index, group, createPlan(type, 2));
@@ -115,7 +117,12 @@ describe("admission coordinator recovery", () => {
 			duplication: { policy: "replace" },
 		};
 		const index = new DuplicationIndex();
-		const coordinator = new AdmissionCoordinator(index, new DuplicationResolver(index));
+		const mutationGate = new AgentMutationGate();
+		const coordinator = new AdmissionCoordinator(
+			index,
+			new DuplicationResolver(index, mutationGate),
+			mutationGate
+		);
 		const firstDestroy = vi.fn(() => {
 			throw new Error("first eviction failed");
 		});

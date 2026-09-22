@@ -7,8 +7,11 @@ export interface AnyDescriptorBinding {
 }
 
 /**
- * Return value from a descriptor handler. Changes to the Descriptor's data is called
- * through `update`. When the Descriptor is destroyed, `destroy` is called,
+ * Return value from a descriptor handler. Changes to the Descriptor's data are
+ * delivered through `update`. When the Descriptor is destroyed, `destroy` is called.
+ *
+ * Bindings may mutate the AgentState, including through Sources they
+ * own. This mutation reentrancy is supported.
  */
 export interface DescriptorBinding<TDescriptorData, TSourceData> extends AnyDescriptorBinding {
 	readonly source: Source<TSourceData>;

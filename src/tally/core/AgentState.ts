@@ -15,6 +15,7 @@ import { SourceType } from "../state/source/SourceType.js";
 import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { IdCounter } from "../util/IdCounter.js";
+import { AgentMutationGate } from "./AgentMutationGate.js";
 import { DescriptorManager, type DescriptorCallback } from "./DescriptorManager.js";
 import { ReplicationEmitter } from "./ReplicationEmitter.js";
 import { SourceManager, type PropertyCallback, type SourceCallback } from "./SourceManager.js";
@@ -34,6 +35,7 @@ export interface AgentStateOptions {
  * lifecycle observation for the associated entity.
  */
 export class AgentState<TEntity> {
+	private readonly mutationGate = new AgentMutationGate();
 	private readonly duplicationIndex: DuplicationIndex;
 	private readonly duplicationResolver: DuplicationResolver;
 	private readonly admissionCoordinator: AdmissionCoordinator;
@@ -53,20 +55,30 @@ export class AgentState<TEntity> {
 		options: AgentStateOptions
 	) {
 		this.duplicationIndex = new DuplicationIndex();
-		this.duplicationResolver = new DuplicationResolver(this.duplicationIndex);
+		this.duplicationResolver = new DuplicationResolver(
+			this.duplicationIndex,
+			this.mutationGate
+		);
 		this.admissionCoordinator = new AdmissionCoordinator(
 			this.duplicationIndex,
-			this.duplicationResolver
+			this.duplicationResolver,
+			this.mutationGate
 		);
 
 		this.counter = new IdCounter();
 		const { reporter } = options;
 		this.reporter = reporter;
 
-		this.sources = new SourceManager(reporter, this.counter, this.admissionCoordinator);
+		this.sources = new SourceManager(
+			reporter,
+			this.counter,
+			this.mutationGate,
+			this.admissionCoordinator
+		);
 		this.descriptors = new DescriptorManager(
 			reporter,
 			this.counter,
+			this.mutationGate,
 			this.admissionCoordinator,
 			this.sources
 		);
@@ -297,10 +309,12 @@ export class AgentState<TEntity> {
 	}
 
 	destroyAllSources() {
+		this.mutationGate.assertMutationAllowed();
 		this.sources.destroyAllSources();
 	}
 
 	destroyAllDescriptors() {
+		this.mutationGate.assertMutationAllowed();
 		this.descriptors.destroyAllDescriptors();
 	}
 
@@ -311,6 +325,7 @@ export class AgentState<TEntity> {
 	 */
 	destroy() {
 		if (this.destroyed) return;
+		this.mutationGate.assertMutationAllowed();
 		this.destroyed = true;
 		this.destroyCallbacks.emit();
 		this.sources.disconnectAll();

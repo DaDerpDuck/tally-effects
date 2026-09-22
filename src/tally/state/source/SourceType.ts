@@ -30,6 +30,9 @@ export interface SourceTypeDefinition<TData> extends StateTypeDefinition<TData> 
 	readonly duplication?: DuplicatePolicy<Source<TData>, TData>;
 	/**
 	 * Returns the modifiers for a given data that is passed to the Source.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
 	 */
 	contribute(data: TData): SourceContribution;
 	/**

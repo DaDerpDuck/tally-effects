@@ -1,3 +1,4 @@
+import type { AgentMutationGate } from "../../core/AgentMutationGate.js";
 import { tallyReport, type TallyReporter } from "../../core/TallyReporter.js";
 import { CallbackSet } from "../../util/CallbackSet.js";
 import type { Disconnect } from "../../util/Disconnect.js";
@@ -50,6 +51,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 	constructor(
 		lease: AdmissionLease,
+		private readonly mutationGate: AgentMutationGate,
 		identity: DescriptorIdentity<TDescriptorData, TSourceData>,
 		private readonly host: DescriptorHost<TDescriptorData, TSourceData>
 	) {
@@ -149,8 +151,15 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 	set(data: TDescriptorData) {
 		this.assertAlive();
+		this.mutationGate.assertMutationAllowed();
 		const currentData = this.hasPendingData ? this.pendingData! : this.data;
-		if (!this.bindingDirty && this.type.dataEquals(currentData, data)) return;
+		if (
+			!this.bindingDirty &&
+			this.mutationGate.evaluate("DescriptorType.dataEquals", () =>
+				this.type.dataEquals(currentData, data)
+			)
+		)
+			return;
 
 		this.pendingData = data;
 		this.hasPendingData = true;
@@ -167,7 +176,13 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 				this.pendingData = undefined;
 				this.hasPendingData = false;
 
-				if (!this.bindingDirty && this.type.dataEquals(this.data, nextData)) continue;
+				if (
+					!this.bindingDirty &&
+					this.mutationGate.evaluate("DescriptorType.dataEquals", () =>
+						this.type.dataEquals(this.data, nextData)
+					)
+				)
+					continue;
 
 				this.data = nextData;
 				this.bindingDirty = true;
@@ -194,6 +209,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 	destroy() {
 		if (this.ownership.kind === "destroyed") return;
+		this.mutationGate.assertMutationAllowed();
 
 		if (this.ownership.kind === "admitting") {
 			this.ownership.lease.cancel();

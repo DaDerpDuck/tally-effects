@@ -4,6 +4,12 @@ import type { ModifierOrder } from "./ModifierOrder.js";
 import type { ModifierHandle } from "./ModifierRegistry.js";
 
 export interface ModifierContribution {
+	/**
+	 * Allocates this contribution in the supplied modifier registry.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
+	 */
 	applyTo(registry: ModifierCollection, order: ModifierOrder): ModifierHandle;
 }
 

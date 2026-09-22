@@ -8,6 +8,7 @@ import type { SourceContribution } from "./SourceContribution.js";
 import { SourceInstance, type SourceIdentity } from "./SourceInstance.js";
 import type { SourceType } from "./SourceType.js";
 import type { TallyReporter } from "../../core/TallyReporter.js";
+import type { AgentMutationGate } from "../../core/AgentMutationGate.js";
 
 export interface SourceHost {
 	getReporter(): TallyReporter;
@@ -55,6 +56,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 	constructor(
 		lease: AdmissionLease,
+		private readonly mutationGate: AgentMutationGate,
 		identity: SourceIdentity<TData>,
 		private readonly host: SourceHost
 	) {
@@ -83,21 +85,14 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		if (this.ownership.kind !== "admitting")
 			throw new Error("Cannot prepare a non-admitting runtime");
 		const lease = this.ownership.lease;
-		while (!lease.isTerminal()) {
-			if (this.hasPendingData) {
-				this.data = this.pendingData!;
-				this.pendingData = undefined;
-				this.hasPendingData = false;
-			}
-
-			const contributions = this.host.contributeModifiers(this.type, this.data);
-			if (lease.isTerminal()) return;
-
-			if (this.hasPendingData) continue;
-
-			this.contributions = contributions;
-			return;
+		if (lease.isTerminal()) return;
+		if (this.hasPendingData) {
+			this.data = this.pendingData!;
+			this.pendingData = undefined;
+			this.hasPendingData = false;
 		}
+
+		this.contributions = this.host.contributeModifiers(this.type, this.data);
 	}
 
 	install(): void {
@@ -152,8 +147,14 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 	set(data: TData): void {
 		this.assertAlive();
+		this.mutationGate.assertMutationAllowed();
 		const currentData = this.hasPendingData ? this.pendingData! : this.data;
-		if (this.type.dataEquals(currentData, data)) return;
+		if (
+			this.mutationGate.evaluate("SourceType.dataEquals", () =>
+				this.type.dataEquals(currentData, data)
+			)
+		)
+			return;
 
 		this.pendingData = data;
 		this.hasPendingData = true;
@@ -172,13 +173,16 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 				this.pendingData = undefined;
 				this.hasPendingData = false;
 
-				if (this.type.dataEquals(this.data, nextData)) continue;
+				if (
+					this.mutationGate.evaluate("SourceType.dataEquals", () =>
+						this.type.dataEquals(this.data, nextData)
+					)
+				)
+					continue;
 
 				this.data = nextData;
 
 				const nextContributions = this.host.contributeModifiers(this.type, this.data);
-				if (this.isInactive()) return;
-				if (this.hasPendingData) continue;
 
 				this.handles = this.host.changeModifiers(
 					this.instance,
@@ -214,6 +218,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 	destroy(): void {
 		if (this.ownership.kind === "destroyed") return;
+		this.mutationGate.assertMutationAllowed();
 
 		if (this.ownership.kind === "admitting") {
 			this.ownership.lease.cancel();

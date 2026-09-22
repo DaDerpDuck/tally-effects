@@ -43,35 +43,6 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 		expect(agent.getSources(SourceType).size).toBe(1);
 	});
 
-	it("preserves a group's stack limit when ranking reenters admission", () => {
-		const group = new DuplicationGroup({
-			policy: "replace",
-			maxStack: 1,
-			selector: "lowest",
-		});
-		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		const SourceType = defineSourceType<number>({
-			name: "ReentrantGroupedRankingSource",
-			priority: 100,
-			duplication: group.member({
-				rank: (value) => {
-					if (value === 1 && !reentered) {
-						reentered = true;
-						agent.addSource(SourceType, 2);
-					}
-					return value;
-				},
-			}),
-			contribute: () => [],
-		});
-
-		agent.addSource(SourceType, 1);
-		agent.addSource(SourceType, 3);
-
-		expect(agent.getSources(SourceType).size).toBe(1);
-	});
-
 	it("revalidates a grouped eviction when preparation mutates the incoming rank", () => {
 		const group = new DuplicationGroup({
 			policy: "replace",
@@ -95,103 +66,6 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 
 		expect(agent.addSource(SourceType, { rank: 10 })).toBeUndefined();
 		expect(agent.getSources(SourceType)).toEqual(new Set([existing]));
-	});
-
-	it("lets the newer grouped admission replace a candidate still being published", () => {
-		const group = new DuplicationGroup({
-			policy: "replace",
-			maxStack: 1,
-			selector: "oldest",
-		});
-		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		const SourceType = defineSourceType<number>({
-			name: "ReentrantGroupedPublishSource",
-			priority: 100,
-			duplication: group.member(),
-			contribute: (value) => {
-				if (!reentered) {
-					reentered = true;
-					agent.addSource(SourceType, 2);
-				}
-				return [];
-			},
-		});
-
-		agent.addSource(SourceType, 1);
-
-		expect([...agent.getSources(SourceType)].map((source) => source.get())).toEqual([2]);
-	});
-
-	it("rolls back modifiers from a Source cancelled during contribution", () => {
-		const Property = defineNumberProperty({
-			name: "CancelledPendingSourceProperty",
-			defaultValue: 0,
-		});
-		const group = new DuplicationGroup({
-			policy: "replace",
-			maxStack: 1,
-			selector: "oldest",
-		});
-		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		const SourceType = defineSourceType<number>({
-			name: "CancelledPendingSource",
-			priority: 100,
-			duplication: group.member(),
-			contribute: (value) => {
-				if (!reentered) {
-					reentered = true;
-					agent.addSource(SourceType, 2);
-				}
-				return [Property.add(value)];
-			},
-		});
-
-		agent.addSource(SourceType, 1);
-
-		expect([...agent.getSources(SourceType)].map((source) => source.get())).toEqual([2]);
-		expect(agent.get(Property)).toBe(2);
-	});
-
-	it("rolls back modifiers from a Source destroyed during its update", () => {
-		const Property = defineNumberProperty({
-			name: "DestroyedUpdatingSourceProperty",
-			defaultValue: 0,
-		});
-		const group = new DuplicationGroup({
-			policy: "replace",
-			maxStack: 1,
-			selector: "oldest",
-		});
-		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		const SourceType = defineSourceType<number>({
-			name: "DestroyedUpdatingSource",
-			priority: 100,
-			duplication: group.member(),
-			contribute: (value) => {
-				if (value === 3 && !reentered) {
-					reentered = true;
-					agent.addSource(SourceType, 2);
-				}
-				return [Property.add(value)];
-			},
-		});
-
-		const first = agent.addSource(SourceType, 1)!;
-		first.set(3);
-		agent.addSource(
-			defineSourceType<undefined>({
-				name: "DestroyedUpdatingSourceResolutionTrigger",
-				priority: 100,
-				contribute: () => [Property.add(0)],
-			}),
-			undefined
-		);
-
-		expect([...agent.getSources(SourceType)].map((source) => source.get())).toEqual([2]);
-		expect(agent.get(Property)).toBe(2);
 	});
 
 	it("removes a failed Source reservation so admission can be retried", () => {
@@ -300,94 +174,6 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 		expect(() => agent.addDescriptor(DescriptorType, 1)).toThrow("handler failed");
 
 		expect(agent.getSources(OutputType)).toEqual(new Set());
-	});
-
-	it("reprepares a Source after pending reconciliation changes its data during contribution", () => {
-		const Property = defineNumberProperty({
-			name: "PendingReconciliationProperty",
-			defaultValue: 0,
-		});
-		let reentered = false;
-		const evaluated = new Array<number>();
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		const SourceType = defineSourceType<number>({
-			name: "PendingReconciliationSource",
-			priority: 100,
-			duplication: {
-				policy: "reconcile",
-				reconcile: (existing, incoming) => existing.set(incoming),
-			},
-			contribute: (value) => {
-				evaluated.push(value);
-				if (!reentered) {
-					reentered = true;
-					agent.addSource(SourceType, 2);
-				}
-				return [Property.add(value)];
-			},
-		});
-
-		const source = agent.addSource(SourceType, 1)!;
-
-		expect(source.get()).toBe(2);
-		expect(agent.get(Property)).toBe(2);
-		expect(evaluated).toEqual([1, 2]);
-	});
-
-	it("discards stale contributions after a reentrant live Source update", () => {
-		const Property = defineNumberProperty({
-			name: "ReentrantLiveSourceUpdateProperty",
-			defaultValue: 0,
-		});
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		// eslint-disable-next-line prefer-const
-		let source: Source<number> | undefined;
-		let reentered = false;
-		const SourceType = defineSourceType<number>({
-			name: "ReentrantLiveSourceUpdate",
-			priority: 100,
-			contribute: (value) => {
-				if (value === 2 && !reentered) {
-					reentered = true;
-					source!.set(3);
-				}
-				return [Property.add(value)];
-			},
-		});
-
-		source = agent.addSource(SourceType, 1)!;
-		source.set(2);
-
-		expect(source.get()).toBe(3);
-		expect(agent.get(Property)).toBe(3);
-	});
-
-	it("unregisters a Source destroyed by pending reconciliation", () => {
-		let reentered = false;
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		const added = new Array<Source<number>>();
-		const SourceType = defineSourceType<number>({
-			name: "PendingReconciliationDestroyedSource",
-			priority: 100,
-			duplication: {
-				policy: "reconcile",
-				reconcile: (existing) => existing.destroy(),
-			},
-			contribute: () => {
-				if (!reentered) {
-					reentered = true;
-					agent.addSource(SourceType, 2);
-				}
-				return [];
-			},
-		});
-		agent.onSourceAdded((source) => added.push(source as Source<number>));
-
-		agent.addSource(SourceType, 1);
-
-		expect(agent.getSources(SourceType)).toEqual(new Set());
-		expect(added).toEqual([]);
-		expect(agent.addSource(SourceType, 3)).toBeDefined();
 	});
 });
 
@@ -815,36 +601,6 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
 		expect(agent.getSources(OutputType)).toEqual(new Set());
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
-	});
-
-	it("does not reconcile a Source destroyed before pending reconciliation is published", () => {
-		const Property = defineNumberProperty({
-			name: "DestroyedPendingReconciliationProperty",
-			defaultValue: 0,
-		});
-		const agent = new AgentState<undefined>(undefined, { reporter: testReporter });
-		let reentered = false;
-		const SourceType = defineSourceType<number>({
-			name: "DestroyedPendingReconciliationSource",
-			priority: 100,
-			duplication: {
-				policy: "reconcile",
-				reconcile: (existing, incoming) => existing.set(incoming),
-			},
-			contribute: (value) => {
-				if (!reentered) {
-					reentered = true;
-					expect(agent.addSource(SourceType, 2)).toBeUndefined();
-				}
-				return [Property.add(value)];
-			},
-		});
-		agent.onPropertyChanged(Property, () => {
-			for (const source of agent.getSources(SourceType)) source.destroy();
-		});
-
-		expect(agent.addSource(SourceType, 1)).toBeUndefined();
-		expect(agent.getSources(SourceType)).toEqual(new Set());
 	});
 
 	it("unregisters a Descriptor before its derived Source removal observers reenter", () => {
