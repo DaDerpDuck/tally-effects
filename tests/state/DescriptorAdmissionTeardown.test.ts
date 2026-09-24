@@ -1,7 +1,7 @@
 import { afterAll } from "vitest";
 
 globalThis.__tallyDuplicationTransactionSuite = "Descriptor admission and teardown reentrancy";
-await import("../fixtures/duplicationTransactionCases.js");
+await import("../fixtures/DuplicationTransactionCases.js");
 afterAll(() => {
 	globalThis.__tallyDuplicationTransactionSuite = undefined;
 });
