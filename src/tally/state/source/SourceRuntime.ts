@@ -156,14 +156,16 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 			return;
 
 		this.pendingData = data;
+		const hadPendingData = this.hasPendingData;
 		this.hasPendingData = true;
 		if (!this.installed || this.updating) return;
 
-		this.drainPendingUpdates();
+		this.drainPendingUpdates(!hadPendingData);
 	}
 
 	/** @providesMutationGate */
-	private drainPendingUpdates() {
+	private drainPendingUpdates(skipFirstEquality = false) {
+		let skipEquality = skipFirstEquality;
 		let committedData = this.data;
 		let committedContributions = this.contributions;
 		try {
@@ -173,7 +175,11 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 				this.pendingData = undefined;
 				this.hasPendingData = false;
 
+				const skipThisTime = skipEquality;
+				skipEquality = false;
+
 				if (
+					!skipThisTime &&
 					this.mutationGate.evaluate("source-data-equality", () =>
 						this.type.dataEquals(this.data, nextData)
 					)

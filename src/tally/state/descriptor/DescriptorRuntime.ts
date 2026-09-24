@@ -168,14 +168,16 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 			return;
 
 		this.pendingData = data;
+		const hadPendingData = this.hasPendingData;
 		this.hasPendingData = true;
 		if (!this.installed || this.updating) return;
 
-		this.drainPendingUpdates();
+		this.drainPendingUpdates(!hadPendingData);
 	}
 
 	/** @providesMutationGate */
-	private drainPendingUpdates() {
+	private drainPendingUpdates(skipFirstEquality = false) {
+		let skipEquality = skipFirstEquality;
 		try {
 			this.updating = true;
 			do {
@@ -183,7 +185,11 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 				this.pendingData = undefined;
 				this.hasPendingData = false;
 
+				const skipThisTime = skipEquality;
+				skipEquality = false;
+
 				if (
+					!skipThisTime &&
 					!this.bindingDirty &&
 					this.mutationGate.evaluate("descriptor-data-equality", () =>
 						this.type.dataEquals(this.data, nextData)

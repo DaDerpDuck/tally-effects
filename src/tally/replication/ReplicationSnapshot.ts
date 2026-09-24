@@ -19,30 +19,29 @@ export interface ReplicationSnapshot {
 export function createReplicationSnapshot(agent: AgentState<unknown>): ReplicationSnapshot {
 	const mutationGate = AgentMutationGate.forAgent(agent);
 	return {
-		sources: agent
-			.getSources()
-			.values()
-			.filter(
-				(source) =>
-					source.type.replication !== undefined && source.provenance.domain === "local"
-			)
-			.map((source) =>
-				mutationGate.evaluate("source-serialization", () => serializeSource(source))
-			)
-			.toArray(),
-		descriptors: agent
-			.getDescriptors()
-			.values()
-			.filter(
-				(descriptor) =>
-					descriptor.type.replication !== undefined &&
-					descriptor.provenance.domain === "local"
-			)
-			.map((descriptor) =>
-				mutationGate.evaluate("descriptor-serialization", () =>
-					serializeDescriptor(descriptor)
+		sources: mutationGate.evaluate("source-serialization", () =>
+			agent
+				.getSources()
+				.values()
+				.filter(
+					(source) =>
+						source.type.replication !== undefined &&
+						source.provenance.domain === "local"
 				)
-			)
-			.toArray(),
+				.map((source) => serializeSource(source))
+				.toArray()
+		),
+		descriptors: mutationGate.evaluate("descriptor-serialization", () =>
+			agent
+				.getDescriptors()
+				.values()
+				.filter(
+					(descriptor) =>
+						descriptor.type.replication !== undefined &&
+						descriptor.provenance.domain === "local"
+				)
+				.map((descriptor) => serializeDescriptor(descriptor))
+				.toArray()
+		),
 	};
 }

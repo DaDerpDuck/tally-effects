@@ -330,8 +330,8 @@ export class SourceManager {
 		provenance: StateProvenance
 	): ModifierHandle[] {
 		return this.modifierRegistry.collectAllocations(() => {
-			for (let i = 0; i < contribution.length; i++) {
-				this.mutationGate.evaluate("modifier-allocation", () =>
+			this.mutationGate.evaluate("modifier-allocation", () => {
+				for (let i = 0; i < contribution.length; i++) {
 					contribution[i]!.applyTo(this.modifierRegistry, {
 						priority,
 						domain:
@@ -341,9 +341,9 @@ export class SourceManager {
 								: OrderingDomain.authoritative,
 						sequence: provenance.sequence,
 						modifierIndex: i,
-					})
-				);
-			}
+					});
+				}
+			});
 		});
 	}
 
