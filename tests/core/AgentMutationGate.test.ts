@@ -29,7 +29,7 @@ describe("restricted hook mutation reentrancy", () => {
 			},
 		});
 
-		expect(() => agent.addSource(Restricted)).toThrow(mutationError("SourceType.contribute"));
+		expect(() => agent.addSource(Restricted)).toThrow(mutationError("source-contribution"));
 		expect(agent.getSources(Restricted)).toEqual(new Set());
 		expect(agent.getSources(Nested)).toEqual(new Set());
 	});
@@ -51,7 +51,7 @@ describe("restricted hook mutation reentrancy", () => {
 			},
 		});
 
-		expect(() => agent.addSource(Restricted)).toThrow(mutationError("SourceType.contribute"));
+		expect(() => agent.addSource(Restricted)).toThrow(mutationError("source-contribution"));
 		expect(existing.get()).toBe(1);
 		expect(agent.getSources(Restricted)).toEqual(new Set());
 	});
@@ -74,7 +74,7 @@ describe("restricted hook mutation reentrancy", () => {
 		});
 		const source = agent.addSource(Restricted, 1)!;
 
-		expect(() => source.set(2)).toThrow(mutationError("SourceType.dataEquals"));
+		expect(() => source.set(2)).toThrow(mutationError("source-data-equality"));
 		expect(source.get()).toBe(1);
 		expect(agent.getSources(Nested)).toEqual(new Set());
 	});
@@ -105,7 +105,7 @@ describe("restricted hook mutation reentrancy", () => {
 		});
 		const descriptor = agent.addDescriptor(Restricted, 1)!;
 
-		expect(() => descriptor.set(2)).toThrow(mutationError("DescriptorType.dataEquals"));
+		expect(() => descriptor.set(2)).toThrow(mutationError("descriptor-data-equality"));
 		expect(descriptor.get()).toBe(1);
 		expect(agent.getSources(Nested)).toEqual(new Set());
 	});
@@ -129,7 +129,7 @@ describe("restricted hook mutation reentrancy", () => {
 			contribute: () => [contribution],
 		});
 
-		expect(() => agent.addSource(Restricted)).toThrow(mutationError("ModifierHandle.applyTo"));
+		expect(() => agent.addSource(Restricted)).toThrow(mutationError("modifier-allocation"));
 		expect(agent.getSources(Restricted)).toEqual(new Set());
 		expect(agent.getSources(Nested)).toEqual(new Set());
 	});
@@ -165,7 +165,9 @@ describe("restricted hook mutation reentrancy", () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					code: "property-resolution-failed",
-					error: expect.objectContaining({ message: mutationError("Property.resolve") }),
+					error: expect.objectContaining({
+						message: mutationError("property-resolution"),
+					}),
 				}),
 			])
 		);
@@ -212,7 +214,7 @@ describe("restricted hook mutation reentrancy", () => {
 				expect.objectContaining({
 					code: "property-equality-failed",
 					error: expect.objectContaining({
-						message: mutationError("Property.valueEquals"),
+						message: mutationError("property-equality"),
 					}),
 				}),
 			])
@@ -251,7 +253,7 @@ describe("restricted hook mutation reentrancy", () => {
 		restricted = true;
 
 		expect(() => agent.addSource(SourceType, 2)).toThrow(
-			mutationError("duplication policy rank")
+			mutationError("duplication-policy-rank")
 		);
 		expect(agent.getSources(SourceType)).toEqual(new Set([first]));
 	});
@@ -277,7 +279,7 @@ describe("restricted hook mutation reentrancy", () => {
 		const first = agent.addSource(SourceType, 1)!;
 
 		expect(() => agent.addSource(SourceType, 2)).toThrow(
-			mutationError("duplication policy replaceIf")
+			mutationError("duplication-policy-replace-if")
 		);
 		expect(agent.getSources(SourceType)).toEqual(new Set([first]));
 	});

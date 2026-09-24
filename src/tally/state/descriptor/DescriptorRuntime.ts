@@ -148,7 +148,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		const currentData = this.hasPendingData ? this.pendingData! : this.data;
 		if (
 			!this.bindingDirty &&
-			this.mutationGate.evaluate("DescriptorType.dataEquals", () =>
+			this.mutationGate.evaluate("descriptor-data-equality", () =>
 				this.type.dataEquals(currentData, data)
 			)
 		)
@@ -171,7 +171,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 				if (
 					!this.bindingDirty &&
-					this.mutationGate.evaluate("DescriptorType.dataEquals", () =>
+					this.mutationGate.evaluate("descriptor-data-equality", () =>
 						this.type.dataEquals(this.data, nextData)
 					)
 				)

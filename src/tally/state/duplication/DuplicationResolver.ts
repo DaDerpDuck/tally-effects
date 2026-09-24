@@ -177,11 +177,11 @@ export class DuplicationResolver {
 						}
 					}
 
-					const incomingRank = this.mutationGate.evaluate("duplication policy rank", () =>
+					const incomingRank = this.mutationGate.evaluate("duplication-policy-rank", () =>
 						policy.rank(data)
 					);
 					const replaces = this.mutationGate.evaluate(
-						"duplication policy replaceIf",
+						"duplication-policy-replace-if",
 						() => policy.replaceIf(rank, incomingRank)
 					);
 					if (!replaces) return DuplicationResolver.DecideIgnoreStructure;

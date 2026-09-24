@@ -265,7 +265,7 @@ export class SourceManager {
 			// Failures are reported and retried after a later mutation.
 			let newResolution: unknown;
 			try {
-				newResolution = this.mutationGate.evaluate("Property.resolve", () =>
+				newResolution = this.mutationGate.evaluate("property-resolution", () =>
 					property.resolve(property.defaultValue, this.modifierRegistry.get(property))
 				);
 			} catch (error) {
@@ -286,7 +286,7 @@ export class SourceManager {
 			let changed: boolean;
 			try {
 				changed = this.mutationGate.evaluate(
-					"Property.valueEquals",
+					"property-equality",
 					() => !property.valueEquals(oldResolution, newResolution)
 				);
 			} catch (error) {
@@ -312,7 +312,7 @@ export class SourceManager {
 	}
 
 	private contributeModifiers<TData>(type: SourceType<TData>, data: TData): SourceContribution {
-		return this.mutationGate.evaluate("SourceType.contribute", () => type.contribute(data));
+		return this.mutationGate.evaluate("source-contribution", () => type.contribute(data));
 	}
 
 	private applyModifiers(
@@ -324,7 +324,7 @@ export class SourceManager {
 
 		try {
 			for (let i = 0; i < contribution.length; i++) {
-				handles[i] = this.mutationGate.evaluate("ModifierHandle.applyTo", () =>
+				handles[i] = this.mutationGate.evaluate("modifier-allocation", () =>
 					contribution[i]!.applyTo(this.modifierRegistry, {
 						priority,
 						domain:

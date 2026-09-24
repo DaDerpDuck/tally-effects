@@ -65,13 +65,13 @@ export class AdmissionCoordinator {
 						const state = entry.state;
 
 						if (state.kind === "pending") {
-							return this.mutationGate.evaluate("duplication policy rank", () =>
+							return this.mutationGate.evaluate("duplication-policy-rank", () =>
 								policy.rank(state.admission.pendingCandidate().get())
 							);
 						}
 
 						if (state.kind === "live") {
-							return this.mutationGate.evaluate("duplication policy rank", () =>
+							return this.mutationGate.evaluate("duplication-policy-rank", () =>
 								policy.rank(state.candidate.get())
 							);
 						}

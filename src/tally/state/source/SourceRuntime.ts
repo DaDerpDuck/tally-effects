@@ -145,7 +145,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.mutationGate.assertMutationAllowed();
 		const currentData = this.hasPendingData ? this.pendingData! : this.data;
 		if (
-			this.mutationGate.evaluate("SourceType.dataEquals", () =>
+			this.mutationGate.evaluate("source-data-equality", () =>
 				this.type.dataEquals(currentData, data)
 			)
 		)
@@ -169,7 +169,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 				this.hasPendingData = false;
 
 				if (
-					this.mutationGate.evaluate("SourceType.dataEquals", () =>
+					this.mutationGate.evaluate("source-data-equality", () =>
 						this.type.dataEquals(this.data, nextData)
 					)
 				)
