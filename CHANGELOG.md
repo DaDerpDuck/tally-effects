@@ -19,6 +19,7 @@
   its handle.
 - Destroy bindings returned after a reentrant Descriptor admission cancellation, and clean
   derived Sources added after cancellation even if the handler then throws.
+- Apply reconciled Descriptor data to its binding before a pending admission commits.
 
 ## [0.3.0] - 2026-09-18
 

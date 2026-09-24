@@ -109,6 +109,8 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 		this.host.installDescriptor(this.instance);
 		this.installed = true;
+		// Reconciliation may have queued updates while the handler was binding.
+		if (this.hasPendingData) this.drainPendingUpdates();
 	}
 
 	announceAdded(): void {
