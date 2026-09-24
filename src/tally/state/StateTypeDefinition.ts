@@ -7,6 +7,9 @@ export interface StateTypeDefinition<TData> {
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	dataEquals?(a: TData, b: TData): boolean;
 }

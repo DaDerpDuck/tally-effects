@@ -23,6 +23,9 @@ interface DuplicationGroupOptions<T> {
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	rank(data: T): number;
 	/**
@@ -30,6 +33,9 @@ interface DuplicationGroupOptions<T> {
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	replaceIf(existingRank: number, incomingRank: number): boolean;
 }
@@ -41,6 +47,9 @@ export interface DuplicationGroupMember<T> {
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	rank(data: T): number;
 	/**
@@ -48,6 +57,9 @@ export interface DuplicationGroupMember<T> {
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	replaceIf(existingRank: number, incomingRank: number): boolean;
 }

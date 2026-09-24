@@ -140,6 +140,10 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		return this.data;
 	}
 
+	/**
+	 * @checksMutationGate
+	 * @providesMutationGate
+	 */
 	set(data: TData): void {
 		this.assertAlive();
 		this.mutationGate.assertMutationAllowed();
@@ -158,6 +162,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.drainPendingUpdates();
 	}
 
+	/** @providesMutationGate */
 	private drainPendingUpdates() {
 		let committedData = this.data;
 		let committedContributions = this.contributions;
@@ -214,6 +219,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		}
 	}
 
+	/** @checksMutationGate */
 	destroy(): void {
 		if (this.ownership.kind === "destroyed") return;
 		this.mutationGate.assertMutationAllowed();

@@ -19,6 +19,7 @@ export type DuplicatePolicy<TExisting, TData> =
 	  }
 	| {
 			readonly policy: "reconcile";
+			/** @mutationReentrancy supported */
 			reconcile(existing: TExisting, incoming: TData): void;
 	  }
 	| DuplicationGroupMember<TData>;
@@ -27,11 +28,17 @@ export type ResolvedDuplicatePolicy<TExisting, TData> =
 	| { readonly policy: "allow" }
 	| { readonly policy: "ignore" }
 	| { readonly policy: "replace" }
-	| { readonly policy: "reconcile"; reconcile(existing: TExisting, incoming: TData): void }
+	| {
+			readonly policy: "reconcile";
+			/** @mutationReentrancy supported */
+			reconcile(existing: TExisting, incoming: TData): void;
+	  }
 	| {
 			readonly policy: "group";
 			readonly group: DuplicationGroup;
+			/** @requiresMutationGate */
 			rank(data: TData): number;
+			/** @requiresMutationGate */
 			replaceIf(existingRank: number, incomingRank: number): boolean;
 	  };
 

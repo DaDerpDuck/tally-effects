@@ -21,6 +21,7 @@ import type { AgentState } from "./AgentState.js";
 import type { SourceManager } from "./SourceManager.js";
 import type { TallyReporter } from "./TallyReporter.js";
 
+/** @mutationReentrancy supported */
 export type DescriptorCallback<TDescriptorData = unknown, TSourceData = unknown> = (
 	descriptor: Descriptor<TDescriptorData, TSourceData>
 ) => void;
@@ -77,6 +78,7 @@ export class DescriptorManager<TEntity> {
 		}));
 	}
 
+	/** @checksMutationGate */
 	addDescriptor<TDescriptorData, TSourceData>(
 		agent: AgentState<TEntity>,
 		type: DescriptorType<TDescriptorData, TSourceData>,
@@ -149,6 +151,7 @@ export class DescriptorManager<TEntity> {
 		return this.descriptorUpdatedCallbacks.add(callback);
 	}
 
+	/** @checksMutationGate */
 	destroyAllDescriptors() {
 		this.mutationGate.assertMutationAllowed();
 		// do not batch: reentrant descriptors added by property observers become untracked

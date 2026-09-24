@@ -21,7 +21,9 @@ import { ReplicationEmitter } from "./ReplicationEmitter.js";
 import { SourceManager, type PropertyCallback, type SourceCallback } from "./SourceManager.js";
 import type { TallyReporter } from "./TallyReporter.js";
 
+/** @mutationReentrancy supported */
 type DestroyCallback = () => void;
+/** @mutationReentrancy supported */
 type ReplicationCallback = (event: ReplicationEvent) => void;
 
 export interface AgentStateOptions {
@@ -246,6 +248,8 @@ export class AgentState<TEntity> {
 	 *
 	 * Nested batches are supported. Property resolution and equality failures are
 	 * reported after the batch rather than thrown from the batch callback.
+	 *
+	 * @mutationReentrancy supported
 	 */
 	batch<T>(callback: () => T): T {
 		return this.sources.batch(callback);
@@ -320,6 +324,8 @@ export class AgentState<TEntity> {
 	 * Disconnects all callbacks and destroys all active Sources and Descriptors
 	 *
 	 * This operation is terminal and future mutations will throw an error.
+	 *
+	 * @checksMutationGate
 	 */
 	destroy() {
 		if (this.destroyed) return;

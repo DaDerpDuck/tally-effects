@@ -9,6 +9,9 @@ export interface ModifierContribution {
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	applyTo(registry: ModifierCollection, order: ModifierOrder): ModifierHandle;
 }

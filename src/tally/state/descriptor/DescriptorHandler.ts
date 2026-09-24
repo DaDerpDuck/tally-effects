@@ -26,6 +26,7 @@ export type AnyDescriptorHandler = (
  * through this context. That mutation reentrancy is supported.
  *
  * @see {@link DescriptorHandlerContext}
+ * @mutationReentrancy supported
  */
 export type DescriptorHandler<TEntity, TDescriptorData, TSourceData> = (
 	ctx: DescriptorHandlerContext<TEntity, TSourceData>,

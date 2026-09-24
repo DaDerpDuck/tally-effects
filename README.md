@@ -2,9 +2,7 @@
 
 A composable, source-driven status effect framework for deriving and replicating gameplay state.
 
-Tally models gameplay state as Properties modified by Sources.
-Rather than treating status effects as first-class objects, effects emerge
-from combinations of Sources, Modifiers, Properties, and Descriptors.
+Tally models gameplay state as Properties modified by Sources. Rather than treating status effects as first-class objects, effects emerge from combinations of Sources, Modifiers, Properties, and Descriptors.
 
 ## Features
 
@@ -82,16 +80,9 @@ import { AgentState, TallyContext } from "tally-effects";
 const agent = new AgentState(player, { reporter });
 ```
 
-Tally invokes callbacks synchronously and remains reentrant, but observation callbacks are
-best-effort. A failed callback is reported after it fails and does not stop later callbacks or
-make an already-completed update, removal, or destruction appear to have failed. Teardown and
-property-resolution failures encountered during lifecycle work are reported the same way so
-cleanup can continue. Tally also contains exceptions thrown by the reporter itself; reporters
-should still avoid throwing so diagnostics are not lost.
+Observation callbacks run synchronously. If one fails, Tally reports it and continues with the remaining callbacks. Recoverable cleanup and property-resolution failures are reported too.
 
-`TallyReporter.report()` receives one structured `TallyReport` object. Its stable fields are
-`error`, `code`, and `operation`; reports can also identify a public lifecycle `event` and a
-public `subject`. The reporter owns human-readable formatting, allowing hosts to share the same contract without sharing a logging implementation.
+`TallyReporter.report()` receives one structured `TallyReport` object. Its stable fields are `error`, `code`, and `operation`; reports can also identify a public lifecycle `event` and a public `subject`. The reporter owns human-readable formatting, allowing hosts to share the same contract without sharing a logging implementation.
 
 ### Properties
 
@@ -122,8 +113,7 @@ const Poisoned = defineSourceType<PoisonData>({
 
 #### Priorities and keys
 
-`AgentState.makeSource()` creates a fluent, agent-scoped builder for one
-`SourceType`. Use it when setting a Source's priority or duplication key:
+`AgentState.makeSource()` creates a fluent, agent-scoped builder for one `SourceType`. Use it when setting a Source's priority or duplication key:
 
 ```ts
 const poison = agent
@@ -133,26 +123,17 @@ const poison = agent
     .add({ regenMultiplier: 0.5 });
 ```
 
-`key()` selects the duplication bucket. `provenance()` is an advanced ordering
-and replication setting; leave it unset for ordinary local state, and let
-replication receivers set it for received state.
+`key()` selects the duplication bucket. `provenance()` is an advanced ordering and replication setting; leave it unset for ordinary use, and let replication receivers set it for received state.
 
-Builders are mutable and reusable: their configured settings remain in effect
-for every later `.add()` call. Create a new builder, or change its settings,
-when the next Source needs different values. `.add()` returns `undefined` when
-a duplicate policy rejects or reconciles the new Source.
+Builders are mutable and reusable: their configured settings remain in effect for every later `.add()` call. Create a new builder, or change its settings, when the next Source needs different values. `.add()` returns `undefined` when a duplicate policy rejects or reconciles the new Source.
 
 ### Priorities and Deterministic Ordering
 
-Modifiers are resolved deterministically using a lexicographic ordering key: Source
-priority, ordering domain (authoritative before local), provenance sequence, and the
-Modifier's contribution index within its Source. The result does not depend on
-collection iteration order or the local order in which replicated state arrived.
+Modifiers are resolved deterministically using a lexicographic ordering key: Source priority, ordering domain (authoritative before local), provenance sequence, and the Modifier's contribution index within its Source. The result does not depend on collection iteration order or the local order in which replicated state arrived.
 
 ### Duplicate Policies
 
-A duplicate policy determines what happens when a Source or Descriptor is added in a
-conflicting duplication bucket. The policies are listed below:
+A duplicate policy determines what happens when a Source or Descriptor is added in a conflicting duplication bucket. The policies are listed below:
 
 | Policy | Behavior |
 | ------ | -------- |
@@ -161,9 +142,7 @@ conflicting duplication bucket. The policies are listed below:
 | `replace` | destroy the old instance and create the new one |
 | `reconcile` | let application code merge incoming data into the existing instance |
 
-By default, a type is its own duplication domain and all of its instances use the
-unkeyed bucket. Use a builder's `key()` method to partition that domain. Different
-keys do not conflict, while `undefined` remains the unkeyed bucket:
+By default, a type is its own duplication domain and all of its instances use the unkeyed bucket. Use a builder's `key()` method to partition that domain. Different keys do not conflict, while `undefined` remains the unkeyed bucket:
 
 ```ts
 const first = agent
@@ -177,10 +156,7 @@ const second = agent
     .add({ amount: 20 });
 ```
 
-Use a `DuplicationGroup` when different SourceTypes or DescriptorTypes should share a
-domain. A group can set a stack limit and, for replacement, choose the `oldest`,
-`newest`, `lowest`, or `highest` candidate. Each member supplies its own rank function,
-so heterogeneous data remains type-safe:
+Use a `DuplicationGroup` when different SourceTypes or DescriptorTypes should share a domain. A group can set a stack limit and, for replacement, choose the `oldest`, `newest`, `lowest`, or `highest` candidate. Each member supplies its own rank function, so heterogeneous data remains type-safe:
 
 ```ts
 const damageOverTime = defineDuplicationGroup({
@@ -197,15 +173,7 @@ const Burning = defineSourceType<number>({
 });
 ```
 
-Admission is synchronous and reentrant. An incoming candidate participates in conflicts
-while it is still pending, so callbacks that immediately add, update, or destroy state see
-a consistent duplication bucket. Replacement decisions are revalidated after preparation
-and before any candidate is evicted. Ignored and reconciled additions return `undefined`
-because they do not create a new instance. A replacement may also return `undefined` if
-reentrant lifecycle work destroys it before its added notification. Source and Descriptor added events
-fire only after the candidate is installed and live. Reconciliation and Descriptor handlers
-can still act on pending admissions; a candidate destroyed before its added event produces
-no added or removed event for that candidate.
+Ignored and reconciled additions return `undefined` because they do not create a new instance. Source and Descriptor added events fire after the new instance becomes active.
 
 ### Descriptors
 
@@ -239,8 +207,7 @@ const ProximityFear = defineDescriptorType<
 });
 ```
 
-Register a handler on each `AgentState` that needs to create the Descriptor. A
-`TallyContext` can also register handlers once and apply them to the AgentStates it creates.
+Register a handler on each `AgentState` that needs to create the Descriptor. A `TallyContext` can also register handlers once and apply them to the AgentStates it creates.
 
 ```ts
 agent.registerDescriptorHandler(
@@ -268,8 +235,7 @@ agent.registerDescriptorHandler(
 );
 ```
 
-Register descriptor handlers before adding their Descriptor. When using a `TallyContext`,
-register them before creating AgentStates so each agent receives the expected handler.
+Register descriptor handlers before adding their Descriptor. When using a `TallyContext`, register them before creating AgentStates so each agent receives the expected handler.
 
 #### Descriptor keys
 
@@ -282,32 +248,17 @@ const fear = agent
     .add(proximityData);
 ```
 
-Descriptor builders support `key()` and the advanced `provenance()` setting.
-Like Source builders, they retain their settings across `.add()` calls, and
-`.add()` returns `undefined` when descriptor admission does not create an
-instance (for example, a duplicate policy rejects it or its handler declines
-to bind it).
+Descriptor builders support `key()` and the advanced `provenance()` setting. Like Source builders, they retain their settings across `.add()` calls, and `.add()` returns `undefined` when descriptor admission does not create an instance (for example, a duplicate policy rejects it or its handler declines to bind it).
 
 ### Replication
 
-Each `AgentState` emits replication events, but Tally does not own your networking layer.
-Developers are expected to implement how to transport the data. `TallyContext` forwards events
-from the AgentStates it creates as a convenience when one context owns multiple agents.
+Each `AgentState` emits replication events, but Tally does not own your networking layer. Developers are expected to implement how to transport the data. `TallyContext` forwards events from the AgentStates it creates as a convenience when one context owns multiple agents.
 
 Tally does offer receivers for accepting replication events.
 
-This keeps actor-local state independent: an actor can own one `AgentState`, subscribe with
-`agent.onReplicationEmit()`, and send that event across its actor boundary. The receiving actor
-recreates the matching type definitions and handlers locally, then applies the event through its
-`SourceReceiver` or `DescriptorReceiver`.
+This keeps actor-local state independent: an actor can own one `AgentState`, subscribe with `agent.onReplicationEmit()`, and send that event across its actor boundary. The receiving actor recreates the matching type definitions and handlers locally, then applies the event through its `SourceReceiver` or `DescriptorReceiver`.
 
-When replication is enabled, Source and Descriptor duplication keys are serialized and
-reconstructed with their state. Payloads without a key are treated as belonging to the
-unkeyed bucket, allowing pre-key snapshots and events to remain usable.
-
-Replication serializers must not mutate the AgentState being serialized. If a serializer
-throws during live event emission, Tally reports the failure and omits that event. If a
-serializer throws during snapshot creation, the error reaches the caller.
+Replication serializers, deserializers, and receiver type lookups should only convert or resolve data. They must not mutate the AgentState they operate on.
 
 The replication flow looks like:
 

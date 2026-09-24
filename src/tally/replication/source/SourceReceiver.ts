@@ -1,4 +1,5 @@
 import type { AgentState } from "../../core/AgentState.js";
+import { AgentMutationGate } from "../../core/AgentMutationGate.js";
 import type { Source } from "../../state/source/Source.js";
 import type { AnySourceType, SourceType } from "../../state/source/SourceType.js";
 import type { ReplicationEvent } from "../ReplicationEvent.js";
@@ -15,13 +16,24 @@ import type { SourceReplicationEvent } from "./SourceReplicationEvent.js";
  */
 export class SourceReceiver implements ReplicationReceiver {
 	private readonly replicatedSources = new Map<number, Source>();
+	private readonly mutationGate: AgentMutationGate;
+	/**
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
+	private readonly resolveType: (name: string) => AnySourceType | undefined;
 
 	constructor(
 		private readonly agent: AgentState<unknown>,
-		private readonly resolveType: (name: string) => AnySourceType | undefined
-	) {}
+		resolveType: (name: string) => AnySourceType | undefined
+	) {
+		this.mutationGate = AgentMutationGate.forAgent(agent);
+		this.resolveType = resolveType;
+	}
 
+	/** @checksMutationGate */
 	apply(events: readonly ReplicationEvent[]) {
+		this.mutationGate.assertMutationAllowed();
 		const errors: { event: SourceReplicationEvent; error: Error }[] = [];
 
 		this.agent.batch(() => {
@@ -49,7 +61,9 @@ export class SourceReceiver implements ReplicationReceiver {
 			);
 	}
 
+	/** @checksMutationGate */
 	applySnapshot(snapshot: ReplicationSnapshot) {
+		this.mutationGate.assertMutationAllowed();
 		const errors: { source: ReplicatedSource; error: Error }[] = [];
 
 		this.agent.batch(() => {
@@ -77,28 +91,31 @@ export class SourceReceiver implements ReplicationReceiver {
 			);
 	}
 
+	/** @providesMutationGate */
 	private addSource(replicatedSource: ReplicatedSource): Source {
 		if (this.replicatedSources.has(replicatedSource.id))
 			throw new Error("Attempted to add an existing replicated source");
-		const sourceType = this.resolveType(replicatedSource.type);
+		const sourceType = this.mutationGate.evaluate("source-type-resolution", () =>
+			this.resolveType(replicatedSource.type)
+		);
 		if (!sourceType) throw new Error("Attempted to add a nonexistent replicated source");
-		if (!sourceType.replication)
+		const replication = sourceType.replication;
+		if (!replication)
 			throw new Error(
 				"Attempted to add a replicated source without a replication definition"
 			);
 
-		const source = this.agent.addSource(
-			sourceType as SourceType<unknown>,
-			sourceType.replication.deserialize(replicatedSource.data),
-			{
-				priority: replicatedSource.priority,
-				key: replicatedSource.key,
-				provenance: {
-					domain: "replicated",
-					sequence: replicatedSource.id,
-				},
-			}
+		const data = this.mutationGate.evaluate("source-deserialization", () =>
+			replication.deserialize(replicatedSource.data)
 		);
+		const source = this.agent.addSource(sourceType as SourceType<unknown>, data, {
+			priority: replicatedSource.priority,
+			key: replicatedSource.key,
+			provenance: {
+				domain: "replicated",
+				sequence: replicatedSource.id,
+			},
+		});
 		if (!source) throw new Error("Unable to add a replicated source due to duplication policy");
 
 		this.replicatedSources.set(replicatedSource.id, source);
@@ -109,17 +126,22 @@ export class SourceReceiver implements ReplicationReceiver {
 		return source;
 	}
 
+	/** @providesMutationGate */
 	private updateSource(sourceId: SourceId, data: ReplicationValue) {
 		const source = this.replicatedSources.get(sourceId);
 		if (!source)
 			throw new Error(
 				"Attempted to update a replicated source without a locally created source."
 			);
-		if (!source.type.replication)
+		const replication = source.type.replication;
+		if (!replication)
 			throw new Error(
 				"Attempted to update a replicated source without a ReplicationDefinition"
 			);
-		source.set(source.type.replication.deserialize(data));
+		const decoded = this.mutationGate.evaluate("source-deserialization", () =>
+			replication.deserialize(data)
+		);
+		source.set(decoded);
 	}
 
 	private removeSource(sourceId: SourceId) {

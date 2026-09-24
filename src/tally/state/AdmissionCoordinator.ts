@@ -32,6 +32,7 @@ export class AdmissionCoordinator {
 		private readonly mutationGate: AgentMutationGate
 	) {}
 
+	/** @providesMutationGate */
 	admit<
 		TData,
 		TCandidate extends DuplicationCandidate<TData>,

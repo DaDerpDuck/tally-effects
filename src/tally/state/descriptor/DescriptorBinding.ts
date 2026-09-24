@@ -2,7 +2,9 @@ import type { Source } from "../source/Source.js";
 
 export interface AnyDescriptorBinding {
 	readonly source: Source;
+	/** @mutationReentrancy supported */
 	update(data: unknown): void;
+	/** @mutationReentrancy supported */
 	destroy(): void;
 }
 
@@ -12,6 +14,8 @@ export interface AnyDescriptorBinding {
  *
  * Bindings may mutate the AgentState, including through Sources they
  * own. This mutation reentrancy is supported.
+ *
+ * @mutationReentrancy supported
  */
 export interface DescriptorBinding<TDescriptorData, TSourceData> extends AnyDescriptorBinding {
 	readonly source: Source<TSourceData>;

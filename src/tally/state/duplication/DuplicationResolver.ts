@@ -72,6 +72,7 @@ export class DuplicationResolver {
 		}
 	}
 
+	/** @providesMutationGate */
 	decide<
 		TData,
 		TCandidate extends DuplicationCandidate<TData>,

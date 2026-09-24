@@ -32,6 +32,7 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 		};
 	}
 
+	/** @mutationReentrancy supported */
 	emit(...args: TArgs): void {
 		if (this.subscriptions.size === 0) return;
 		const subscriptions = [...this.subscriptions];

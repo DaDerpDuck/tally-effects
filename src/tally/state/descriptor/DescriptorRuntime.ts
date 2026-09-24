@@ -151,6 +151,10 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		return this.binding.source;
 	}
 
+	/**
+	 * @checksMutationGate
+	 * @providesMutationGate
+	 */
 	set(data: TDescriptorData) {
 		this.assertAlive();
 		this.mutationGate.assertMutationAllowed();
@@ -170,6 +174,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		this.drainPendingUpdates();
 	}
 
+	/** @providesMutationGate */
 	private drainPendingUpdates() {
 		try {
 			this.updating = true;
@@ -211,6 +216,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		}
 	}
 
+	/** @checksMutationGate */
 	destroy() {
 		if (this.ownership.kind === "destroyed") return;
 		this.mutationGate.assertMutationAllowed();

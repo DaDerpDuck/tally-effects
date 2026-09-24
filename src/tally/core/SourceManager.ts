@@ -21,7 +21,9 @@ type SourceLifecycleForwarder = (
 	operation: "added" | "updated" | "removed"
 ) => void;
 
+/** @mutationReentrancy supported */
 export type PropertyCallback<T = unknown> = (newValue: T, oldValue: T) => void;
+/** @mutationReentrancy supported */
 export type SourceCallback<T = unknown> = (source: Source<T>) => void;
 
 export class SourceManager {
@@ -65,6 +67,7 @@ export class SourceManager {
 		}));
 	}
 
+	/** @checksMutationGate */
 	addSource<TData>(
 		type: SourceType<TData>,
 		data: TData,
@@ -106,6 +109,7 @@ export class SourceManager {
 		return (this.sourceMap.get(type) ?? SourceManager.EmptySet) as ReadonlySet<Source>;
 	}
 
+	/** @mutationReentrancy supported */
 	batch<T>(callback: () => T): T {
 		this.mutationDepth++;
 
@@ -158,6 +162,7 @@ export class SourceManager {
 		this.replicationForwarder = undefined;
 	}
 
+	/** @checksMutationGate */
 	destroyAllSources() {
 		this.mutationGate.assertMutationAllowed();
 		this.batch(() => this.sources.forEach((source) => source.destroy()));
@@ -259,6 +264,7 @@ export class SourceManager {
 		if (this.mutationDepth === 0) this.resolveProperties();
 	}
 
+	/** @providesMutationGate */
 	private resolveProperties() {
 		for (const property of [...this.dirtyProperties]) {
 			this.dirtyProperties.delete(property);
@@ -312,10 +318,12 @@ export class SourceManager {
 		}
 	}
 
+	/** @providesMutationGate */
 	private contributeModifiers<TData>(type: SourceType<TData>, data: TData): SourceContribution {
 		return this.mutationGate.evaluate("source-contribution", () => type.contribute(data));
 	}
 
+	/** @providesMutationGate */
 	private applyModifiers(
 		contribution: SourceContribution,
 		priority: number,

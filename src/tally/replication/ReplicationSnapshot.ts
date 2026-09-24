@@ -15,6 +15,7 @@ export interface ReplicationSnapshot {
 	readonly descriptors: readonly ReplicatedDescriptor[];
 }
 
+/** @providesMutationGate */
 export function createReplicationSnapshot(agent: AgentState<unknown>): ReplicationSnapshot {
 	const mutationGate = AgentMutationGate.forAgent(agent);
 	return {

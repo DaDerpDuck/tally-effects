@@ -14,6 +14,9 @@ export interface PropertyDefinition<TValue, TModifier extends Modifier<TValue> =
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	valueEquals?(a: TValue, b: TValue): boolean;
 	/**
@@ -23,6 +26,9 @@ export interface PropertyDefinition<TValue, TModifier extends Modifier<TValue> =
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	resolve?: (base: TValue, modifiers: readonly TModifier[]) => TValue;
 }

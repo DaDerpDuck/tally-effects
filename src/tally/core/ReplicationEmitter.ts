@@ -29,6 +29,7 @@ export class ReplicationEmitter {
 		}));
 	}
 
+	/** @providesMutationGate */
 	forwardSourceReplication(source: Source<unknown>, operation: "added" | "updated" | "removed") {
 		if (!source.type.replication || source.provenance.domain !== "local") return;
 		if (this.replicationCallbacks.isEmpty()) return;
@@ -66,6 +67,7 @@ export class ReplicationEmitter {
 		}
 	}
 
+	/** @providesMutationGate */
 	forwardDescriptorReplication(
 		descriptor: AnyDescriptor,
 		operation: "added" | "updated" | "removed"

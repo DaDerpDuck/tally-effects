@@ -2,6 +2,11 @@
 
 ### Changed
 
+- **[Breaking]** Replication receiver type resolvers and deserializers now reject mutations to the
+  receiving AgentState while they run. A receiver also rejects a nested receive operation
+  started from a restricted hook.
+- Added a reentrancy glossary and JSDoc boundary tags for restricted hooks, supported
+  callbacks, local mutation gates, and mutation entry checks.
 - Source and Descriptor added events now fire after admission commits and the candidate becomes
   live. Candidates destroyed before their added event do not emit their own lifecycle
   notifications.

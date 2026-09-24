@@ -3,7 +3,15 @@ import type { AnyModifier, Modifier } from "../modifier/Modifier.js";
 export interface AnyProperty {
 	readonly name: string;
 	readonly defaultValue: unknown;
+	/**
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	valueEquals(a: unknown, b: unknown): boolean;
+	/**
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	resolve(base: unknown, modifiers: readonly AnyModifier[]): unknown;
 }
 
@@ -23,6 +31,14 @@ export interface AnyProperty {
 export interface Property<T, TModifier extends Modifier<T> = Modifier<T>> extends AnyProperty {
 	readonly name: string;
 	readonly defaultValue: T;
+	/**
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	valueEquals(a: T, b: T): boolean;
+	/**
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	resolve(base: T, modifiers: readonly TModifier[]): T;
 }

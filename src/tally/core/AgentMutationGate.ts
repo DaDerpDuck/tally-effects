@@ -12,6 +12,7 @@ export class AgentMutationGate {
 		return gate;
 	}
 
+	/** Restricts same-agent mutations while the callback runs, restoring any outer gate afterward. */
 	evaluate<T>(hook: string, callback: () => T): T {
 		const previousHook = this.activeHook;
 		this.activeHook = hook;
@@ -22,6 +23,7 @@ export class AgentMutationGate {
 		}
 	}
 
+	/** Rejects a mutation attempted while a restricted hook is being evaluated. */
 	assertMutationAllowed() {
 		const hook = this.activeHook;
 		if (hook) throw new Error(`Cannot mutate AgentState while evaluating ${hook}`);

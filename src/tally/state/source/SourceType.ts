@@ -33,6 +33,9 @@ export interface SourceTypeDefinition<TData> extends StateTypeDefinition<TData> 
 	 *
 	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
 	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	contribute(data: TData): SourceContribution;
 	/**
@@ -46,6 +49,7 @@ export interface AnySourceType extends AnyDuplicableType {
 	readonly priority: number;
 	readonly duplication: ResolvedDuplicatePolicy<Source, unknown>;
 	readonly replication?: AnyReplicationDefinition | undefined;
+	/** @requiresMutationGate */
 	dataEquals(a: unknown, b: unknown): boolean;
 }
 
@@ -64,6 +68,7 @@ export class SourceType<TData>
 		this.replication = definition.replication;
 	}
 
+	/** @requiresMutationGate */
 	contribute(data: TData): SourceContribution {
 		return this.definition.contribute(data);
 	}
@@ -72,6 +77,7 @@ export class SourceType<TData>
 		registerNamed(registry.sources, this, "source");
 	}
 
+	/** @requiresMutationGate */
 	dataEquals(a: TData, b: TData): boolean {
 		return this.definition.dataEquals?.(a, b) ?? Object.is(a, b);
 	}
