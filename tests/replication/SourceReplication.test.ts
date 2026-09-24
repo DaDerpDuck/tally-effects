@@ -253,7 +253,7 @@ describe("Source replication events", () => {
 		).toThrow("Failed to apply 1 replication event(s)");
 	});
 
-	it("emits added before removed when an earlier added observer destroys the pending Source", () => {
+	it("emits added before removed when an earlier added observer destroys the live Source", () => {
 		const { clientAgent, emittedEvents, serverAgent } = createReplicationFixture({
 			beforeReplicationSubscribe(agent) {
 				agent.onSourceAdded((source) => source.destroy());

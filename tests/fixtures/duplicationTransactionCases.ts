@@ -155,6 +155,45 @@ describeSuite("reentrant admission, reconciliation, and rollback", () => {
 		expect([...agent.getSources(OutputType)].map((source) => source.get())).toEqual([2]);
 	});
 
+	it("cancels a pending Descriptor destroyed by a reentrant reconciliation", () => {
+		const OutputType = defineSourceType<number>({
+			name: "ReconciledPendingDescriptorOutput",
+			priority: 100,
+			contribute: () => [],
+		});
+		const DescriptorType = defineDescriptorType<number, number>({
+			name: "ReconciledPendingDescriptor",
+			source: OutputType,
+			duplication: {
+				policy: "reconcile",
+				reconcile: (existing, incoming) => {
+					if (incoming === 2) existing.destroy();
+				},
+			},
+		});
+		const agent = new AgentState(undefined, { reporter: testReporter });
+		const descriptorAdded = vi.fn();
+		const descriptorRemoved = vi.fn();
+		agent.onDescriptorAdded(descriptorAdded);
+		agent.onDescriptorRemoved(descriptorRemoved);
+		agent.registerDescriptorHandler(DescriptorType, (ctx, data) => {
+			const source = ctx.addSource(data)!;
+			if (data === 1) agent.addDescriptor(DescriptorType, 2);
+			return {
+				source,
+				update: (value) => source.set(value),
+				destroy: () => source.destroy(),
+			};
+		});
+
+		expect(agent.addDescriptor(DescriptorType, 1)).toBeUndefined();
+		expect(agent.getDescriptors(DescriptorType)).toEqual(new Set());
+		expect(agent.getSources(OutputType)).toEqual(new Set());
+		expect(descriptorAdded).not.toHaveBeenCalled();
+		expect(descriptorRemoved).not.toHaveBeenCalled();
+		expect(agent.addDescriptor(DescriptorType, 3)).toBeDefined();
+	});
+
 	it("rolls back a Descriptor's derived Source when its handler throws", () => {
 		const OutputType = defineSourceType<number>({
 			name: "FailedDescriptorHandlerOutput",
@@ -247,7 +286,7 @@ describeSuite("Source admission and teardown reentrancy", () => {
 		expect(agent.addSource(SourceType, 2)).toBeDefined();
 	});
 
-	it("cancels a Source destroyed by a property observer during admission", () => {
+	it("does not announce a Source destroyed by a property observer before its added event", () => {
 		const Property = defineNumberProperty({
 			name: "PropertyObserverDestroyedPendingSourceProperty",
 			defaultValue: 0,
@@ -563,7 +602,7 @@ describeSuite("Descriptor admission and teardown reentrancy", () => {
 		expect(agent.addDescriptor(DescriptorType, 2)).toBeDefined();
 	});
 
-	it("cancels a Descriptor destroyed by a property observer during admission", () => {
+	it("does not announce a Descriptor destroyed by a property observer before its added event", () => {
 		const Property = defineNumberProperty({
 			name: "PropertyObserverDestroyedPendingDescriptorProperty",
 			defaultValue: 0,

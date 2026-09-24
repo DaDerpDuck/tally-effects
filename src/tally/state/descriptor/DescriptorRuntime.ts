@@ -87,7 +87,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		const lease = this.ownership.lease;
 		const binding = this.host.tryBind(this.derivedSources);
 
-		// The handler may have called descriptor.destroy().
+		// The handler may have cancelled this admission through nested reconciliation or replacement.
 		if (lease.isTerminal()) {
 			this.cleanupBinding();
 			return;
@@ -105,9 +105,8 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	}
 
 	announceAdded(): void {
-		if (this.ownership.kind !== "admitting")
-			throw new Error("Cannot announce a non-admitting runtime");
-		if (this.announced || this.ownership.lease.isTerminal()) return;
+		if (this.ownership.kind !== "live") throw new Error("Cannot announce a non-live runtime");
+		if (this.announced) return;
 		this.announced = true; // set before callbacks, they may destroy this source
 		this.host.announceAdded(this.instance);
 	}
@@ -115,7 +114,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	markLive(unlink: () => void): void {
 		if (this.ownership.kind !== "admitting")
 			throw new Error("Cannot install a non-admitting runtime");
-		if (!this.installed || !this.announced || this.ownership.lease.isTerminal())
+		if (!this.installed || this.ownership.lease.isTerminal())
 			throw new Error("Cannot complete an incomplete admission");
 		this.ownership = {
 			kind: "live",
@@ -131,12 +130,6 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 		this.ownership = { kind: "destroyed" };
 		this.updateCallbacks.clear();
-
-		if (this.announced) {
-			this.destroyCallbacks.emit(this.instance);
-			this.host.announceDestroyed(this.instance);
-		}
-
 		this.destroyCallbacks.clear();
 	}
 
@@ -188,15 +181,17 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 				this.bindingDirty = true;
 				this.binding?.update(this.data);
 				this.bindingDirty = false;
-				if (this.isInactive()) return;
-				if (this.hasPendingData) continue;
-
-				this.updateCallbacks.emit(this.instance);
 
 				if (this.isInactive()) return;
-				if (this.hasPendingData) continue;
 
-				this.host.announceUpdated(this.instance);
+				if (this.announced && this.ownership.kind === "live") {
+					if (this.hasPendingData) continue;
+					this.updateCallbacks.emit(this.instance);
+
+					if (this.isInactive()) return;
+					if (this.hasPendingData) continue;
+					this.host.announceUpdated(this.instance);
+				}
 			} while (!this.isInactive() && this.hasPendingData);
 		} catch (error) {
 			this.pendingData = undefined;
@@ -225,9 +220,9 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		this.cleanupBinding();
 
 		this.updateCallbacks.clear();
-		this.destroyCallbacks.emit(this.instance);
+		if (this.announced) this.destroyCallbacks.emit(this.instance);
 		this.destroyCallbacks.clear();
-		this.host.announceDestroyed(this.instance);
+		if (this.announced) this.host.announceDestroyed(this.instance);
 	}
 
 	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
@@ -242,6 +237,10 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 	private assertAlive() {
 		if (this.ownership.kind === "destroyed") throw new Error("Descriptor has been destroyed");
+	}
+
+	isLive() {
+		return this.ownership.kind === "live";
 	}
 
 	private isInactive() {

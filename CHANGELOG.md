@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Changed
+
+- Source and Descriptor added events now fire after admission commits and the candidate becomes
+  live. Candidates destroyed before their added event do not emit their own lifecycle
+  notifications.
+- `AgentState` now rejects mutations attempted from Source or Descriptor data equality,
+  Source contribution, Modifier allocation, Property resolution or equality, and duplication
+  rank or replacement hooks. Required admission and update hooks throw; Property hook failures
+  are reported and leave the last successful cached value intact. Descriptor handlers,
+  bindings, and lifecycle callbacks remain reentrant.
+
 ## [0.3.0] - 2026-09-18
 
 ### Added

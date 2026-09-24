@@ -92,18 +92,18 @@ export class DescriptorManager<TEntity> {
 
 		let receipt: AdmissionReceipt<Descriptor<TDescriptorData, TSourceData>> | undefined;
 		try {
-			this.sources.batch(
-				() =>
-					(receipt = this.admission.admit(
-						this.planDescriptor(
-							handler as DescriptorHandler<TEntity, TDescriptorData, TSourceData>,
-							agent,
-							type,
-							data,
-							options
-						)
-					))
-			);
+			this.sources.batch(() => {
+				receipt = this.admission.admit(
+					this.planDescriptor(
+						handler as DescriptorHandler<TEntity, TDescriptorData, TSourceData>,
+						agent,
+						type,
+						data,
+						options
+					)
+				);
+				receipt?.commit();
+			});
 		} catch (e) {
 			const errors = [e];
 			try {
@@ -114,7 +114,7 @@ export class DescriptorManager<TEntity> {
 			if (errors.length === 1) throw errors[0];
 			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
 		}
-		return this.sources.batch(() => receipt?.publish());
+		return this.sources.batch(() => receipt?.emitAdded());
 	}
 
 	registerDescriptorHandler<TDescriptorData, TSourceData>(

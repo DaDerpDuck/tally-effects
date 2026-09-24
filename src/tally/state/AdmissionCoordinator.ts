@@ -18,7 +18,8 @@ import type {
 } from "./duplication/DuplicationResolver.js";
 
 export interface AdmissionReceipt<T> {
-	publish(): T | undefined;
+	commit(): void;
+	emitAdded(): T | undefined;
 	rollback(): void;
 }
 
@@ -85,7 +86,6 @@ export class AdmissionCoordinator {
 		try {
 			transaction.beginDecision();
 			const initialDecision = preflightDecision ?? this.resolver.decide(entry);
-			if (transaction.isTerminal()) return;
 			if (initialDecision.action !== "add") {
 				this.finishNonAddDecision(transaction, initialDecision);
 				return;
@@ -101,14 +101,11 @@ export class AdmissionCoordinator {
 			if (transaction.isTerminal()) return;
 
 			runtime.prepare();
-			transaction.drainReconciliations();
-			if (transaction.isTerminal()) return;
 
 			const finalDecision =
 				initialDecision.evict.length === 0 && this.index.isCurrent(initialBasis)
 					? initialDecision
 					: this.resolver.decide(entry);
-			if (transaction.isTerminal()) return;
 			if (finalDecision.action !== "add") {
 				this.finishNonAddDecision(transaction, finalDecision);
 				return;
@@ -122,24 +119,17 @@ export class AdmissionCoordinator {
 			if (transaction.isTerminal()) return;
 			transaction.markInstalled();
 
-			transaction.beginAnnouncing();
-
 			const receipt: AdmissionReceipt<TCandidate> = {
-				publish: () => {
+				commit: () => {
 					if (transaction.isTerminal()) return;
-					try {
-						runtime.announceAdded();
-						if (transaction.isTerminal()) return;
-
-						runtime.markLive(() => this.index.unlink(entry));
-						this.index.activate(entry, runtime);
-						transaction.complete();
-
-						return runtime.instance as TCandidate;
-					} catch (e) {
-						transaction.cancel();
-						throw e;
-					}
+					this.index.activate(entry, runtime);
+					runtime.markLive(() => this.index.unlink(entry));
+					transaction.complete();
+				},
+				emitAdded: () => {
+					if (!runtime.isLive()) return;
+					runtime.announceAdded();
+					return runtime.isLive() ? (runtime.instance as TCandidate) : undefined;
 				},
 				rollback: () => {
 					transaction.cancel();

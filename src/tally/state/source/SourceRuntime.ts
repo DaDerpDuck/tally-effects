@@ -107,9 +107,8 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 	}
 
 	announceAdded(): void {
-		if (this.ownership.kind !== "admitting")
-			throw new Error("Cannot announce a non-admitting runtime");
-		if (this.announced || this.ownership.lease.isTerminal()) return;
+		if (this.ownership.kind !== "live") throw new Error("Cannot announce a non-live runtime");
+		if (this.announced) return;
 		this.announced = true; // set before callbacks, they may destroy this source
 		this.host.announceAdded(this.instance);
 	}
@@ -117,7 +116,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 	markLive(unlink: () => void): void {
 		if (this.ownership.kind !== "admitting")
 			throw new Error("Cannot install a non-admitting runtime");
-		if (!this.installed || !this.announced || this.ownership.lease.isTerminal())
+		if (!this.installed || this.ownership.lease.isTerminal())
 			throw new Error("Cannot complete an incomplete admission");
 		this.ownership = {
 			kind: "live",
@@ -134,10 +133,6 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.contributions = undefined;
 		this.ownership = { kind: "destroyed" };
 		this.updateCallbacks.clear();
-		if (this.announced) {
-			this.destroyCallbacks.emit(this.instance);
-			this.host.announceDestroyed(this.instance);
-		}
 		this.destroyCallbacks.clear();
 	}
 
@@ -196,12 +191,15 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 				this.host.resolveModifiers();
 
 				if (this.isInactive()) return;
-				if (this.hasPendingData) continue;
-				this.updateCallbacks.emit(this.instance);
 
-				if (this.isInactive()) return;
-				if (this.hasPendingData) continue;
-				this.host.announceUpdated(this.instance);
+				if (this.announced && this.ownership.kind === "live") {
+					if (this.hasPendingData) continue;
+					this.updateCallbacks.emit(this.instance);
+
+					if (this.isInactive()) return;
+					if (this.hasPendingData) continue;
+					this.host.announceUpdated(this.instance);
+				}
 			} while (!this.isInactive() && this.hasPendingData);
 		} catch (error) {
 			if (!this.isInactive()) {
@@ -234,9 +232,9 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.host.resolveModifiers();
 
 		this.updateCallbacks.clear();
-		this.destroyCallbacks.emit(this.instance);
+		if (this.announced) this.destroyCallbacks.emit(this.instance);
 		this.destroyCallbacks.clear();
-		this.host.announceDestroyed(this.instance);
+		if (this.announced) this.host.announceDestroyed(this.instance);
 	}
 
 	onUpdate(callback: (self: Source<TData>) => void): Disconnect {
@@ -251,6 +249,10 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 
 	private assertAlive() {
 		if (this.ownership.kind === "destroyed") throw new Error("Source has been destroyed");
+	}
+
+	isLive() {
+		return this.ownership.kind === "live";
 	}
 
 	private isInactive() {

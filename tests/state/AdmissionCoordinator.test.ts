@@ -29,25 +29,44 @@ class TestCandidate implements DuplicationCandidate<number> {
 }
 
 class TestRuntime implements AdmissionRuntime<number> {
-	constructor(readonly instance: TestCandidate) {}
+	private live = false;
+	private destroyed = false;
+	announced = false;
+
+	constructor(
+		readonly instance: TestCandidate,
+		private readonly onAnnounce: () => void = () => {}
+	) {}
 
 	prepare() {}
 	install() {}
-	announceAdded() {}
-	markLive() {}
-	rollbackAdmission() {}
+	announceAdded() {
+		if (!this.live) throw new Error("Cannot announce before activation");
+		this.announced = true;
+		this.onAnnounce();
+	}
+	markLive() {
+		this.live = true;
+	}
+	rollbackAdmission() {
+		this.destroyed = true;
+	}
+	isLive() {
+		return this.live && !this.destroyed;
+	}
 }
 
 function createPlan(
 	type: DuplicableType<TestCandidate, number>,
 	data: number,
-	onDestroy?: () => void
+	onDestroy?: () => void,
+	onAnnounce?: () => void
 ): AdmissionPlan<number, TestCandidate, TestRuntime> {
 	return {
 		type,
 		key: undefined,
 		data,
-		createRuntime: () => new TestRuntime(new TestCandidate(type, data, onDestroy)),
+		createRuntime: () => new TestRuntime(new TestCandidate(type, data, onDestroy), onAnnounce),
 	};
 }
 
@@ -74,13 +93,38 @@ function reserveLive(
 	transaction.beginPreparing();
 	const runtime = transaction.createRuntime()!;
 	transaction.markInstalled();
-	transaction.beginAnnouncing();
 	index.activate(entry, runtime);
+	runtime.markLive();
 	transaction.complete();
 	return runtime.instance;
 }
 
 describe("admission coordinator recovery", () => {
+	it("activates an entry before its added notification", () => {
+		const type: DuplicableType<TestCandidate, number> = {
+			duplication: { policy: "allow" },
+		};
+		const index = new DuplicationIndex();
+		const mutationGate = new AgentMutationGate();
+		const coordinator = new AdmissionCoordinator(
+			index,
+			new DuplicationResolver(index, mutationGate),
+			mutationGate
+		);
+		const observedStates: string[] = [];
+		const receipt = coordinator.admit(
+			createPlan(type, 1, undefined, () => {
+				observedStates.push(index.first(type, undefined)?.state.kind ?? "missing");
+			})
+		)!;
+
+		expect(index.first(type, undefined)?.state.kind).toBe("pending");
+		receipt.commit();
+		expect(index.first(type, undefined)?.state.kind).toBe("live");
+		expect(receipt.emitAdded()).toBeDefined();
+		expect(observedStates).toEqual(["live"]);
+	});
+
 	it("plans enough grouped evictions to restore an overfull bucket", () => {
 		const group = new DuplicationGroup({
 			policy: "replace",

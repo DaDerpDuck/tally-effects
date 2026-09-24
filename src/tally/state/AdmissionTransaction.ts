@@ -10,10 +10,9 @@ import type { DuplicationIndex } from "./duplication/DuplicationIndex.js";
 type AdmissionState =
 	| "created" // transaction exists but is not visible in the index
 	| "reserved" // has a pending index entry
-	| "deciding" // evaluating duplication policy (reentrancy possible from rank/replaceIf functions)
-	| "preparing" // plan is creating runtime and public instance (reentrancy possible from contribution/binding)
+	| "deciding" // evaluating duplication policy; rank and replaceIf cannot mutate AgentState
+	| "preparing" // plan creates the runtime; descriptor binding may reenter admission
 	| "installed" // runtime registered in manager's internal collections
-	| "announcing" // publishing added notification (reentrancy possible from added listeners)
 	| "completed" // admission succeeded, entry is now live
 	| "cancelled"; // admission will not produce a live entry
 
@@ -85,12 +84,6 @@ export class AdmissionTransaction<
 		if (this.state !== "preparing")
 			throw new Error("Cannot install from a state other than preparing");
 		this.state = "installed";
-	}
-
-	beginAnnouncing() {
-		if (this.state !== "installed")
-			throw new Error("Cannot announce from a state other than installed");
-		this.state = "announcing";
 	}
 
 	complete() {

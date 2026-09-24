@@ -22,10 +22,12 @@ export interface AdmissionRuntime<TData> {
 	prepare(): void;
 	/** Register prepared state with the owning manager; the duplication entry stays pending. */
 	install(): void;
-	/** Publish the added notification; callbacks may reenter and cancel the admission. */
+	/** Publish the added notification after activation; callbacks may reenter. */
 	announceAdded(): void;
 	/** Transfer the runtime to live ownership with an exact index-unlink capability. */
 	markLive(unlink: () => void): void;
-	/** Undo partial preparation/installation; does not commit or perform pending-index policy. */
+	/** Undo partial preparation/installation without public lifecycle notifications. */
 	rollbackAdmission(): void;
+	/** Whether the runtime is installed and active in its duplication entry. */
+	isLive(): boolean;
 }

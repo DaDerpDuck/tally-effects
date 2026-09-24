@@ -169,6 +169,15 @@ describe("restricted hook mutation reentrancy", () => {
 				}),
 			])
 		);
+
+		const Unrelated = defineSourceType<undefined>({
+			name: "PropertyResolutionRetryTrigger",
+			priority: 100,
+			contribute: () => [],
+		});
+		expect(agent.addSource(Unrelated)).toBeDefined();
+		expect(reports).toHaveLength(4);
+		expect(agent.get(Property)).toBe(0);
 	});
 
 	it("reports and retains the last cache when property equality attempts mutation", () => {
@@ -208,6 +217,15 @@ describe("restricted hook mutation reentrancy", () => {
 				}),
 			])
 		);
+
+		const Unrelated = defineSourceType<undefined>({
+			name: "PropertyEqualityRetryTrigger",
+			priority: 100,
+			contribute: () => [],
+		});
+		expect(agent.addSource(Unrelated)).toBeDefined();
+		expect(reports).toHaveLength(4);
+		expect(agent.get(Property)).toBe(0);
 	});
 
 	it("rejects admission from duplication rank and leaves the current candidate live", () => {

@@ -310,7 +310,7 @@ describe("Descriptor replication events", () => {
 		).toThrow("Failed to apply 1 replication event(s)");
 	});
 
-	it("emits added before removed when an earlier added observer destroys the pending Descriptor", () => {
+	it("emits added before removed when an earlier added observer destroys the live Descriptor", () => {
 		const { clientAgent, emittedEvents, serverAgent } = createReplicationFixture({
 			beforeReplicationSubscribe(agent) {
 				agent.onDescriptorAdded((descriptor) => descriptor.destroy());

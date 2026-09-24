@@ -202,7 +202,10 @@ while it is still pending, so callbacks that immediately add, update, or destroy
 a consistent duplication bucket. Replacement decisions are revalidated after preparation
 and before any candidate is evicted. Ignored and reconciled additions return `undefined`
 because they do not create a new instance. A replacement may also return `undefined` if
-reentrant lifecycle work cancels it before publication.
+reentrant lifecycle work destroys it before its added notification. Source and Descriptor added events
+fire only after the candidate is installed and live. Reconciliation and Descriptor handlers
+can still act on pending admissions; a candidate destroyed before its added event produces
+no added or removed event for that candidate.
 
 ### Descriptors
 

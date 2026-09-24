@@ -73,9 +73,10 @@ export class SourceManager {
 		this.mutationGate.assertMutationAllowed();
 		let receipt: AdmissionReceipt<Source<TData>> | undefined;
 		try {
-			this.batch(
-				() => (receipt = this.admission.admit(this.planSource(type, data, options)))
-			);
+			this.batch(() => {
+				receipt = this.admission.admit(this.planSource(type, data, options));
+				receipt?.commit();
+			});
 		} catch (e) {
 			const errors = [e];
 			try {
@@ -86,7 +87,7 @@ export class SourceManager {
 			if (errors.length === 1) throw errors[0];
 			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
 		}
-		return this.batch(() => receipt?.publish());
+		return this.batch(() => receipt?.emitAdded());
 	}
 
 	get<T>(property: Property<T>): T {
