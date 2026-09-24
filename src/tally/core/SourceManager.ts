@@ -159,6 +159,7 @@ export class SourceManager {
 	}
 
 	destroyAllSources() {
+		this.mutationGate.assertMutationAllowed();
 		this.batch(() => this.sources.forEach((source) => source.destroy()));
 		this.sources.clear();
 		this.modifierRegistry.clear();
@@ -320,11 +321,9 @@ export class SourceManager {
 		priority: number,
 		provenance: StateProvenance
 	): ModifierHandle[] {
-		const handles = new Array<ModifierHandle>(contribution.length);
-
-		try {
+		return this.modifierRegistry.collectAllocations(() => {
 			for (let i = 0; i < contribution.length; i++) {
-				handles[i] = this.mutationGate.evaluate("modifier-allocation", () =>
+				this.mutationGate.evaluate("modifier-allocation", () =>
 					contribution[i]!.applyTo(this.modifierRegistry, {
 						priority,
 						domain:
@@ -337,12 +336,7 @@ export class SourceManager {
 					})
 				);
 			}
-
-			return handles;
-		} catch (e) {
-			this.clearModifierHandles(handles.filter((x) => x !== undefined));
-			throw e;
-		}
+		});
 	}
 
 	private clearModifierHandles(handles: ModifierHandle[]) {

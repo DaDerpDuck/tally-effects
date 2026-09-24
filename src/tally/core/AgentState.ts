@@ -35,7 +35,7 @@ export interface AgentStateOptions {
  * lifecycle observation for the associated entity.
  */
 export class AgentState<TEntity> {
-	private readonly mutationGate = new AgentMutationGate();
+	private readonly mutationGate = new AgentMutationGate(this);
 	private readonly duplicationIndex: DuplicationIndex;
 	private readonly duplicationResolver: DuplicationResolver;
 	private readonly admissionCoordinator: AdmissionCoordinator;
@@ -290,7 +290,7 @@ export class AgentState<TEntity> {
 		if (this.destroyed) return () => {};
 
 		if (!this.replicationEmitter) {
-			const emitter = new ReplicationEmitter(this.reporter);
+			const emitter = new ReplicationEmitter(this.reporter, this.mutationGate);
 			this.sources.setReplicationForwarder((source, operation) =>
 				emitter.forwardSourceReplication(source, operation)
 			);
@@ -309,12 +309,10 @@ export class AgentState<TEntity> {
 	}
 
 	destroyAllSources() {
-		this.mutationGate.assertMutationAllowed();
 		this.sources.destroyAllSources();
 	}
 
 	destroyAllDescriptors() {
-		this.mutationGate.assertMutationAllowed();
 		this.descriptors.destroyAllDescriptors();
 	}
 

@@ -7,9 +7,18 @@
   notifications.
 - `AgentState` now rejects mutations attempted from Source or Descriptor data equality,
   Source contribution, Modifier allocation, Property resolution or equality, and duplication
-  rank or replacement hooks. Required admission and update hooks throw; Property hook failures
-  are reported and leave the last successful cached value intact. Descriptor handlers,
-  bindings, and lifecycle callbacks remain reentrant.
+  rank or replacement hooks, and replication serialization. Required admission and update
+  hooks throw; Property hook failures are reported and leave the last successful cached value
+  intact. Live replication serialization failures are reported and suppress the event; snapshot
+  serialization failures throw. Descriptor handlers, bindings, and lifecycle callbacks remain
+  reentrant.
+
+### Fixed
+
+- Roll back modifiers allocated by a custom contribution even if it throws before returning
+  its handle.
+- Destroy bindings returned after a reentrant Descriptor admission cancellation, and clean
+  derived Sources added after cancellation even if the handler then throws.
 
 ## [0.3.0] - 2026-09-18
 

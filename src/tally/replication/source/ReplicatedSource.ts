@@ -19,6 +19,6 @@ export function serializeSource(source: Source): ReplicatedSource {
 		type: source.type.name,
 		priority: source.priority,
 		key: source.key,
-		data: source.type.replication!.serialize(source.get()),
+		data: source.type.replication.serialize(source.get()),
 	};
 }

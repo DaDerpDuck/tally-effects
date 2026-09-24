@@ -14,15 +14,34 @@ export interface ModifierHandle {
 
 export class ModifierRegistry implements ModifierCollection {
 	private readonly map = new Map<unknown, SortedArray<unknown, ModifierOrder>>();
+	private allocationJournal: ModifierHandle[] | undefined;
+
+	collectAllocations(callback: () => void): ModifierHandle[] {
+		const handles: ModifierHandle[] = [];
+		const previous = this.allocationJournal;
+		this.allocationJournal = handles;
+		try {
+			callback();
+			return handles;
+		} catch (error) {
+			this.allocationJournal = previous;
+			for (let i = handles.length - 1; i >= 0; i--) this.delete(handles[i]!);
+			throw error;
+		} finally {
+			this.allocationJournal = previous;
+		}
+	}
 
 	add<T>(property: Property<T>, modifier: Modifier<T>, order: ModifierOrder): ModifierHandle {
 		if (modifier.property !== property) throw new Error("Modifier does not belong to Property");
 		const sarray = this.map.get(property);
 		if (sarray) {
-			return {
+			const handle = {
 				property: property,
 				handle: { modifier: sarray.insert(modifier, order), order },
 			};
+			this.allocationJournal?.push(handle);
+			return handle;
 		} else {
 			const newSarray = new SortedArray<unknown, ModifierOrder>((a, b) => {
 				if (a.priority !== b.priority) return a.priority - b.priority;
@@ -32,10 +51,12 @@ export class ModifierRegistry implements ModifierCollection {
 			});
 			const handle = { modifier: newSarray.insert(modifier, order), order };
 			this.map.set(property, newSarray);
-			return {
+			const modifierHandle = {
 				property: property,
 				handle,
 			};
+			this.allocationJournal?.push(modifierHandle);
+			return modifierHandle;
 		}
 	}
 
@@ -57,6 +78,10 @@ export class ModifierRegistry implements ModifierCollection {
 		if (!sarray) return false;
 		const deleted = sarray.delete(handle.handle.modifier, handle.handle.order);
 		if (sarray.size() === 0) this.map.delete(property);
+		if (deleted && this.allocationJournal) {
+			const index = this.allocationJournal.indexOf(handle);
+			if (index >= 0) this.allocationJournal.splice(index, 1);
+		}
 		return deleted;
 	}
 

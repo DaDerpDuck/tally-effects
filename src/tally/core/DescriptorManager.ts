@@ -150,6 +150,7 @@ export class DescriptorManager<TEntity> {
 	}
 
 	destroyAllDescriptors() {
+		this.mutationGate.assertMutationAllowed();
 		// do not batch: reentrant descriptors added by property observers become untracked
 		this.descriptors.forEach((descriptor) => descriptor.destroy());
 		this.descriptors.clear();

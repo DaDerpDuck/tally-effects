@@ -305,6 +305,10 @@ When replication is enabled, Source and Descriptor duplication keys are serializ
 reconstructed with their state. Payloads without a key are treated as belonging to the
 unkeyed bucket, allowing pre-key snapshots and events to remain usable.
 
+Replication serializers must not mutate the AgentState being serialized. If a serializer
+throws during live event emission, Tally reports the failure and omits that event. If a
+serializer throws during snapshot creation, the error reaches the caller.
+
 The replication flow looks like:
 
 ```

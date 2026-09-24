@@ -41,6 +41,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	>;
 	private ownership: RuntimeOwnership;
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
+	private bindingCleaned = false;
 	private data: TDescriptorData;
 	private pendingData: TDescriptorData | undefined;
 	private hasPendingData = false;
@@ -85,7 +86,15 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 			throw new Error("Cannot install a non-admitting runtime");
 
 		const lease = this.ownership.lease;
-		const binding = this.host.tryBind(this.derivedSources);
+		let binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
+		try {
+			binding = this.host.tryBind(this.derivedSources);
+		} catch (error) {
+			// A handler can cancel admission and continue adding derived Sources before throwing.
+			if (lease.isTerminal()) this.cleanupBinding();
+			throw error;
+		}
+		this.binding = binding;
 
 		// The handler may have cancelled this admission through nested reconciliation or replacement.
 		if (lease.isTerminal()) {
@@ -97,8 +106,6 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 			lease.cancel();
 			return;
 		}
-
-		this.binding = binding;
 
 		this.host.installDescriptor(this.instance);
 		this.installed = true;
@@ -251,14 +258,18 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	}
 
 	private cleanupBinding() {
-		try {
-			this.binding?.destroy();
-		} catch (error) {
-			tallyReport(this.host.getReporter(), {
-				code: "binding-cleanup-failed",
-				operation: "destroy",
-				error,
-			});
+		const binding = this.binding;
+		if (binding && !this.bindingCleaned) {
+			this.bindingCleaned = true;
+			try {
+				binding.destroy();
+			} catch (error) {
+				tallyReport(this.host.getReporter(), {
+					code: "binding-cleanup-failed",
+					operation: "destroy",
+					error,
+				});
+			}
 		}
 
 		for (let i = 0; i < this.derivedSources.length; i++) {
