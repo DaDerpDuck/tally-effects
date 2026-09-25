@@ -1,4 +1,4 @@
-export const TALLY_VERSION = "0.3.0" as const;
+export const TALLY_VERSION = "0.3.1" as const;
 
 // Core
 export { AgentState, type AgentStateOptions } from "./tally/core/AgentState.js";

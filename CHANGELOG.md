@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-25
+
 ### Changed
 
 - **[Breaking]** Replication receiver type resolvers and deserializers now reject mutations to the

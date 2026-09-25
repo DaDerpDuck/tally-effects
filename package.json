@@ -1,6 +1,6 @@
 {
   "name": "tally-effects",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A composable, source-driven status effect framework for deriving and replicating gameplay state.",
   "license": "MIT",
   "author": "TimScript",
