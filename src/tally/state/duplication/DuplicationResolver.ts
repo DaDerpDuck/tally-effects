@@ -125,21 +125,30 @@ export class DuplicationResolver {
 
 		if (policy.policy === "group") {
 			if (policy.group.policy === "ignore") {
-				let conflictCount = 0;
-				for (const conflict of this.index.borrowedView(domain, key)) {
-					if (conflict !== entry) conflictCount++;
+				const borrowedView = this.index.borrowedView(domain, key);
+
+				let atCapacity = borrowedView.length - 1 >= policy.group.maxStack;
+				if (atCapacity) {
+					let conflictCount = 0;
+					for (const conflict of this.index.borrowedView(domain, key)) {
+						if (conflict !== entry) conflictCount++;
+					}
+					atCapacity = conflictCount >= policy.group.maxStack;
 				}
 
-				return conflictCount >= policy.group.maxStack
+				return atCapacity
 					? DuplicationResolver.DecideIgnoreStructure
 					: DuplicationResolver.DecideAddStructure;
 			}
 
 			if (policy.group.policy === "replace") {
 				if (policy.group.maxStack <= 0) return DuplicationResolver.DecideIgnoreStructure;
+				const borrowedView = this.index.borrowedView(domain, key);
+				if (borrowedView.length - 1 < policy.group.maxStack)
+					return DuplicationResolver.DecideAddStructure;
 
 				const selector = policy.group.selector;
-				const conflicts = this.index.borrowedView(domain, key).filter((x) => x !== entry);
+				const conflicts = borrowedView.filter((x) => x !== entry);
 				if (conflicts.length < policy.group.maxStack)
 					return DuplicationResolver.DecideAddStructure;
 
