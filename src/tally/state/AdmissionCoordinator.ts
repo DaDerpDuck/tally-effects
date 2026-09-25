@@ -112,9 +112,11 @@ export class AdmissionCoordinator {
 				return;
 			}
 
-			const oldStates = this.unlinkEvictions(finalDecision.evict);
-			this.destroyEvictions(oldStates);
-			if (transaction.isTerminal()) return;
+			if (finalDecision.evict.length > 0) {
+				const oldStates = this.unlinkEvictions(finalDecision.evict);
+				this.destroyEvictions(oldStates);
+				if (transaction.isTerminal()) return;
+			}
 
 			runtime.install();
 			if (transaction.isTerminal()) return;
