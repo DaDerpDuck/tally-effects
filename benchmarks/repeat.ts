@@ -1,10 +1,10 @@
-import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { parseLogLevel, parseProfile, selectSuites } from "./shared/cli.js";
+import { reportsProgress, runWithProgress, writeProgress } from "./shared/progress.js";
 import { aggregateReports, type BenchmarkReport } from "./shared/report.js";
 
 const { values, positionals } = parseArgs({
@@ -35,9 +35,8 @@ const runEntryPoint = fileURLToPath(new URL("./run.js", import.meta.url));
 try {
 	for (let run = 1; run <= runs; run++) {
 		const runOutput = join(temporaryDirectory, `run-${run}.json`);
-		if (logLevel === "info") console.log(`\nRunning benchmarks (run ${run}/${runs})...`);
 
-		execFileSync(
+		await runWithProgress(
 			process.execPath,
 			[
 				runEntryPoint,
@@ -49,7 +48,12 @@ try {
 				"--profile",
 				profile,
 			],
-			{ stdio: "inherit" }
+			{
+				logLevel,
+				label: `run ${run}/${runs}`,
+				completed: run - 1,
+				total: runs,
+			}
 		);
 		reports.push(JSON.parse(await readFile(runOutput, "utf8")) as BenchmarkReport);
 	}
@@ -61,7 +65,7 @@ try {
 	);
 	await mkdir(dirname(outputPath), { recursive: true });
 	await writeFile(outputPath, `${JSON.stringify(report, null, 2)}\n`);
-	if (logLevel === "info") console.log(`\nWrote aggregated results to ${outputPath}`);
+	if (reportsProgress(logLevel)) writeProgress(`Wrote aggregated results to ${outputPath}`);
 } finally {
 	await rm(temporaryDirectory, { recursive: true, force: true });
 }

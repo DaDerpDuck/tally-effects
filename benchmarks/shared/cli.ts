@@ -26,8 +26,8 @@ export function selectSuites(requested: readonly string[]): Array<keyof typeof s
 }
 
 export function parseLogLevel(value: string): BenchmarkLogLevel {
-	if (value !== "silent" && value !== "warn" && value !== "info") {
-		throw new Error(`Invalid log level "${value}". Expected silent, warn, or info.`);
+	if (value !== "silent" && value !== "warn" && value !== "info" && value !== "verbose") {
+		throw new Error(`Invalid log level "${value}". Expected silent, warn, info, or verbose.`);
 	}
 	return value;
 }

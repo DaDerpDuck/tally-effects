@@ -45,7 +45,7 @@ export const HEAVY_BENCH_OPTIONS = {
 
 export const BENCH_SIZES = [1, 10, 100, 1_000, 10_000] as const;
 
-export type BenchmarkLogLevel = "silent" | "warn" | "info";
+export type BenchmarkLogLevel = "silent" | "warn" | "info" | "verbose";
 
 export type BenchmarkProfile = "default" | "quick" | "comparison";
 
@@ -55,7 +55,7 @@ const WARNING_GUIDANCE = {
 	"zero-mad": "Median absolute deviation is zero; check timer resolution and batch more work.",
 } as const satisfies Record<TimerSaturationReason, string>;
 
-let logLevel: BenchmarkLogLevel = "info";
+let logLevel: "silent" | "warn" | "info" = "info";
 let profile: BenchmarkProfile = "default";
 const warningsByBench = new WeakMap<Bench, Map<string, Set<TimerSaturationReason>>>();
 const operationsPerSampleByBench = new WeakMap<Bench, Map<string, number>>();
@@ -116,19 +116,21 @@ function harnessFingerprint(): string {
 }
 
 export function setBenchmarkLogLevel(nextLevel: BenchmarkLogLevel) {
-	logLevel = nextLevel;
+	// Keep the measurement functions unchanged so progress-only logging does not
+	// alter the harness fingerprint used in cross-revision comparisons.
+	logLevel = nextLevel === "verbose" ? "info" : nextLevel === "info" ? "warn" : nextLevel;
 }
 
 export function setBenchmarkProfile(nextProfile: BenchmarkProfile) {
 	profile = nextProfile;
 }
 
-function shouldLog(level: Exclude<BenchmarkLogLevel, "silent">) {
+function shouldLog(level: "warn" | "info") {
 	const priorities = {
 		silent: 0,
 		warn: 1,
 		info: 2,
-	} as const satisfies Record<BenchmarkLogLevel, number>;
+	} as const satisfies Record<typeof logLevel, number>;
 
 	return priorities[logLevel] >= priorities[level];
 }

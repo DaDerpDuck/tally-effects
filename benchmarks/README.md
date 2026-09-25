@@ -83,8 +83,11 @@ covers both source and descriptor snapshot updates.
 
 ## Output and comparison
 
-Use `info` for tables and warnings, `warn` for warnings only, or `silent` for no
-benchmark output. Failures still exit unsuccessfully at every log level.
+Use `info` for progress and warnings, `verbose` for progress, warnings, and result tables,
+`warn` for warnings only, or `silent` for no benchmark output. Progress reports include
+completed suite or run counts and elapsed time. A parent process emits a status line every
+30 seconds while a run is active, including during a long synchronous task. Failures still
+exit unsuccessfully at every log level.
 
 ```sh
 npm run bench -- scenarios --profile quick --log-level silent --output benchmarks/results/single.json

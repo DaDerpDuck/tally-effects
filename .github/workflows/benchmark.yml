@@ -72,7 +72,7 @@ jobs:
           npm run bench:interleave -- \
             --baseline "$GITHUB_WORKSPACE/baseline" \
             --candidate "$GITHUB_WORKSPACE/candidate" \
-            --runs "$BENCH_RUNS" --profile "$BENCH_PROFILE" --log-level warn \
+            --runs "$BENCH_RUNS" --profile "$BENCH_PROFILE" --log-level info \
             --output "$GITHUB_WORKSPACE/results" "${selected_suites[@]}"
 
       - name: Add workflow summary
