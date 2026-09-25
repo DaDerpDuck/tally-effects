@@ -2,6 +2,38 @@ import { describe, expect, it, vi } from "vitest";
 import { AgentState, defineSourceType, DuplicationGroup, testReporter } from "../src/index.js";
 
 describe("DuplicationGroup replacement selection", () => {
+	it.each([
+		{ selector: "oldest", selected: 10, irrelevant: 20 },
+		{ selector: "newest", selected: 20, irrelevant: 10 },
+	] as const)(
+		"scores only the selected $selector candidate",
+		({ selector, selected, irrelevant }) => {
+			const rank = vi.fn((value: number) => {
+				if (value === irrelevant) throw new Error("Unselected candidate was scored");
+				return value;
+			});
+			const replaceIf = vi.fn(() => true);
+			const group = new DuplicationGroup({ policy: "replace", maxStack: 2, selector });
+			const SourceType = defineSourceType<number>({
+				name: `TemporalSelection${selector}`,
+				priority: 100,
+				duplication: group.member({ rank, replaceIf }),
+				contribute: () => [],
+			});
+			const agent = new AgentState(undefined, { reporter: testReporter });
+			const first = agent.addSource(SourceType, 10)!;
+			const second = agent.addSource(SourceType, 20)!;
+
+			const incoming = agent.addSource(SourceType, 30)!;
+
+			expect(replaceIf).toHaveBeenLastCalledWith(selected, 30);
+			expect(rank).not.toHaveBeenCalledWith(irrelevant);
+			expect(agent.getSources(SourceType)).toEqual(
+				new Set([selector === "oldest" ? second : first, incoming])
+			);
+		}
+	);
+
 	it("uses replaceIf to reject weaker candidates and accept stronger candidates", () => {
 		const group = new DuplicationGroup({
 			policy: "replace",

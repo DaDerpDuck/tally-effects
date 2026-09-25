@@ -149,19 +149,25 @@ export class DuplicationResolver {
 
 				for (let eviction = 0; eviction < evictionCount; eviction++) {
 					let selectedCandidate = remaining[0]!;
-					let rank = selectedCandidate.score();
 					let order = selectedCandidate.order;
+					let rank: number;
 
-					for (let i = 1; i < remaining.length; i++) {
-						const conflict = remaining[i]!;
-						if (
-							(selector === "oldest" && conflict.order < order) ||
-							(selector === "newest" && conflict.order >= order)
-						) {
-							rank = conflict.score();
-							order = conflict.order;
-							selectedCandidate = conflict;
-						} else {
+					if (selector === "oldest" || selector === "newest") {
+						for (let i = 1; i < remaining.length; i++) {
+							const conflict = remaining[i]!;
+							if (
+								(selector === "oldest" && conflict.order < order) ||
+								(selector === "newest" && conflict.order >= order)
+							) {
+								order = conflict.order;
+								selectedCandidate = conflict;
+							}
+						}
+						rank = selectedCandidate.score();
+					} else {
+						rank = selectedCandidate.score();
+						for (let i = 1; i < remaining.length; i++) {
+							const conflict = remaining[i]!;
 							const conflictRank = conflict.score();
 							if (
 								(selector === "lowest" &&
@@ -188,7 +194,10 @@ export class DuplicationResolver {
 					if (!replaces) return DuplicationResolver.DecideIgnoreStructure;
 
 					evictions.push(selectedCandidate);
-					remaining = remaining.filter((candidate) => candidate !== selectedCandidate);
+					if (eviction + 1 < evictionCount)
+						remaining = remaining.filter(
+							(candidate) => candidate !== selectedCandidate
+						);
 				}
 
 				return { action: "add", evict: evictions };
