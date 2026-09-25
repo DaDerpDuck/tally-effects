@@ -40,9 +40,8 @@ export class SortedArray<T, O> {
 
 	values(): T[] {
 		const array = new Array<T>(this.array.length);
-		let idx = 0;
-		for (const element of this.iterateAscending()) {
-			array[idx++] = element;
+		for (let i = 0; i < this.array.length; i++) {
+			array[i] = this.array[i]![0];
 		}
 		return array;
 	}
