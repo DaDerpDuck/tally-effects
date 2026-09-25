@@ -104,6 +104,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 		this.host.installSource(this.instance, this.handles);
 		this.host.resolveModifiers();
 		this.installed = true;
+		this.contributions = undefined;
 	}
 
 	announceAdded(): void {
@@ -167,7 +168,6 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 	private drainPendingUpdates(skipFirstEquality = false) {
 		let skipEquality = skipFirstEquality;
 		let committedData = this.data;
-		let committedContributions = this.contributions;
 		try {
 			this.updating = true;
 			do {
@@ -195,9 +195,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 					this.handles,
 					nextContributions
 				);
-				this.contributions = nextContributions;
 				committedData = this.data;
-				committedContributions = nextContributions;
 
 				this.host.resolveModifiers();
 
@@ -213,10 +211,7 @@ export class SourceRuntime<TData> implements SourceController<TData>, AdmissionR
 				}
 			} while (!this.isInactive() && this.hasPendingData);
 		} catch (error) {
-			if (!this.isInactive()) {
-				this.data = committedData;
-				this.contributions = committedContributions;
-			}
+			if (!this.isInactive()) this.data = committedData;
 			this.pendingData = undefined;
 			this.hasPendingData = false;
 			throw error;
