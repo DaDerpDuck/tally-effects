@@ -10,6 +10,7 @@ export interface ReplicatedDescriptor {
 	readonly data: ReplicationValue;
 }
 
+/** @requiresMutationGate */
 export function serializeDescriptor(descriptor: AnyDescriptor): ReplicatedDescriptor {
 	if (!descriptor.type.replication)
 		throw new Error("Cannot serialize a descriptor without a ReplicationDefinition");

@@ -16,10 +16,12 @@ import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
+import type { AgentMutationGate } from "./AgentMutationGate.js";
 import type { AgentState } from "./AgentState.js";
 import type { SourceManager } from "./SourceManager.js";
 import type { TallyReporter } from "./TallyReporter.js";
 
+/** @mutationReentrancy supported */
 export type DescriptorCallback<TDescriptorData = unknown, TSourceData = unknown> = (
 	descriptor: Descriptor<TDescriptorData, TSourceData>
 ) => void;
@@ -55,6 +57,7 @@ export class DescriptorManager<TEntity> {
 	constructor(
 		private readonly reporter: TallyReporter,
 		private readonly counter: IdCounter,
+		private readonly mutationGate: AgentMutationGate,
 		private readonly admission: AdmissionCoordinator,
 		private readonly sources: SourceManager
 	) {
@@ -75,12 +78,14 @@ export class DescriptorManager<TEntity> {
 		}));
 	}
 
+	/** @checksMutationGate */
 	addDescriptor<TDescriptorData, TSourceData>(
 		agent: AgentState<TEntity>,
 		type: DescriptorType<TDescriptorData, TSourceData>,
 		data: TDescriptorData,
 		options?: DescriptorOption
 	): Descriptor<TDescriptorData, TSourceData> | undefined {
+		this.mutationGate.assertMutationAllowed();
 		const handler = this.descriptorHandlers.get(type);
 		if (!handler)
 			throw new Error(
@@ -89,18 +94,18 @@ export class DescriptorManager<TEntity> {
 
 		let receipt: AdmissionReceipt<Descriptor<TDescriptorData, TSourceData>> | undefined;
 		try {
-			this.sources.batch(
-				() =>
-					(receipt = this.admission.admit(
-						this.planDescriptor(
-							handler as DescriptorHandler<TEntity, TDescriptorData, TSourceData>,
-							agent,
-							type,
-							data,
-							options
-						)
-					))
-			);
+			this.sources.batch(() => {
+				receipt = this.admission.admit(
+					this.planDescriptor(
+						handler as DescriptorHandler<TEntity, TDescriptorData, TSourceData>,
+						agent,
+						type,
+						data,
+						options
+					)
+				);
+				receipt?.commit();
+			});
 		} catch (e) {
 			const errors = [e];
 			try {
@@ -111,7 +116,7 @@ export class DescriptorManager<TEntity> {
 			if (errors.length === 1) throw errors[0];
 			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
 		}
-		return this.sources.batch(() => receipt?.publish());
+		return this.sources.batch(() => receipt?.emitAdded());
 	}
 
 	registerDescriptorHandler<TDescriptorData, TSourceData>(
@@ -146,7 +151,9 @@ export class DescriptorManager<TEntity> {
 		return this.descriptorUpdatedCallbacks.add(callback);
 	}
 
+	/** @checksMutationGate */
 	destroyAllDescriptors() {
+		this.mutationGate.assertMutationAllowed();
 		// do not batch: reentrant descriptors added by property observers become untracked
 		this.descriptors.forEach((descriptor) => descriptor.destroy());
 		this.descriptors.clear();
@@ -185,6 +192,7 @@ export class DescriptorManager<TEntity> {
 
 				return new DescriptorRuntime(
 					lease,
+					this.mutationGate,
 					{ id, type, key, provenance, data },
 					this.createHost(
 						type,

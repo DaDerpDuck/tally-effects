@@ -15,6 +15,7 @@ import { parseArgs } from "node:util";
 import { parseLogLevel, parseProfile, selectSuites } from "./shared/cli.js";
 import { renderComparison } from "./shared/comparison.js";
 import { interleave, type BenchmarkSide } from "./shared/interleave.js";
+import { reportsProgress, runWithProgress, writeProgress } from "./shared/progress.js";
 import { aggregateReports, type BenchmarkReport } from "./shared/report.js";
 
 const { values, positionals } = parseArgs({
@@ -129,7 +130,7 @@ async function build(root: string): Promise<string> {
 			2
 		)
 	);
-	if (logLevel === "info") console.log(`Compiling ${root}`);
+	if (reportsProgress(logLevel)) writeProgress(`Compiling ${root}`);
 	execFileSync(process.execPath, [compiler, "-p", config], { cwd: root, stdio: "inherit" });
 	return join(directory, "out", "benchmarks", "run.js");
 }
@@ -168,8 +169,25 @@ try {
 		const relativePath = `runs/${side}-${String(round).padStart(2, "0")}.json`;
 		const reportPath = join(output, relativePath);
 		const startedAt = new Date().toISOString();
-		if (logLevel === "info") console.log(`Round ${round}/${runs}: ${side}`);
-		execFileSync(
+		// Older baseline checkouts only understand silent, warn, and info. Their
+		// info level prints tables, so use warn for progress-only comparisons.
+		const childLogLevel =
+			side === "baseline"
+				? logLevel === "info"
+					? "warn"
+					: logLevel === "verbose"
+						? "info"
+						: logLevel
+				: logLevel;
+		const baselineEnv =
+			side === "baseline" && reportsProgress(logLevel)
+				? {
+						...process.env,
+						TALLY_BENCH_PROGRESS_FOR_BASELINE: "1",
+						TALLY_BENCH_TABLES_FOR_BASELINE: logLevel === "verbose" ? "1" : "0",
+					}
+				: undefined;
+		await runWithProgress(
 			process.execPath,
 			[
 				entries[side],
@@ -177,11 +195,18 @@ try {
 				"--profile",
 				profile,
 				"--log-level",
-				logLevel,
+				childLogLevel,
 				"--output",
 				reportPath,
 			],
-			{ cwd: roots[side], stdio: "inherit" }
+			{
+				cwd: roots[side],
+				...(baselineEnv ? { env: baselineEnv } : {}),
+				logLevel,
+				label: `round ${round}/${runs} ${side}`,
+				completed: manifest.executions.length,
+				total: runs * 2,
+			}
 		);
 		const report = JSON.parse(await readFile(reportPath, "utf8")) as BenchmarkReport;
 		if (
@@ -219,7 +244,7 @@ try {
 	await writeFile(join(output, "comparison.md"), comparison);
 	manifest.status = "completed";
 	await saveManifest();
-	if (logLevel === "info") console.log(`Wrote interleaved comparison to ${output}`);
+	if (reportsProgress(logLevel)) writeProgress(`Wrote interleaved comparison to ${output}`);
 } catch (error) {
 	manifest.status = "failed";
 	await saveManifest();

@@ -1,3 +1,4 @@
+import type { AgentMutationGate } from "../../core/AgentMutationGate.js";
 import type { AdmissionPlan } from "../AdmissionPlan.js";
 import type { AdmissionRuntime } from "../AdmissionRuntime.js";
 import type { DuplicationCandidate } from "./DuplicationCandidate.js";
@@ -21,7 +22,10 @@ export class DuplicationResolver {
 	private static readonly DecideAddStructure = { action: "add", evict: [] } as const;
 	private static readonly DecideIgnoreStructure = { action: "ignore" } as const;
 
-	constructor(private readonly index: DuplicationIndex) {}
+	constructor(
+		private readonly index: DuplicationIndex,
+		private readonly mutationGate: AgentMutationGate
+	) {}
 
 	preflight<
 		TData,
@@ -68,6 +72,7 @@ export class DuplicationResolver {
 		}
 	}
 
+	/** @providesMutationGate */
 	decide<
 		TData,
 		TCandidate extends DuplicationCandidate<TData>,
@@ -120,82 +125,91 @@ export class DuplicationResolver {
 
 		if (policy.policy === "group") {
 			if (policy.group.policy === "ignore") {
-				let conflictCount = 0;
-				for (const conflict of this.index.borrowedView(domain, key)) {
-					if (conflict !== entry) conflictCount++;
+				const borrowedView = this.index.borrowedView(domain, key);
+
+				let atCapacity = borrowedView.length - 1 >= policy.group.maxStack;
+				if (atCapacity) {
+					let conflictCount = 0;
+					for (const conflict of this.index.borrowedView(domain, key)) {
+						if (conflict !== entry) conflictCount++;
+					}
+					atCapacity = conflictCount >= policy.group.maxStack;
 				}
 
-				return conflictCount >= policy.group.maxStack
+				return atCapacity
 					? DuplicationResolver.DecideIgnoreStructure
 					: DuplicationResolver.DecideAddStructure;
 			}
 
 			if (policy.group.policy === "replace") {
 				if (policy.group.maxStack <= 0) return DuplicationResolver.DecideIgnoreStructure;
+				const borrowedView = this.index.borrowedView(domain, key);
+				if (borrowedView.length - 1 < policy.group.maxStack)
+					return DuplicationResolver.DecideAddStructure;
 
-				/* User-provided rank/replaceIf methods may cause reentrant behavior,
-				so we must revalidate the index hasn't changed */
 				const selector = policy.group.selector;
-				for (;;) {
-					const basis = this.index.basis(domain, key);
-					const conflicts = this.index
-						.borrowedView(domain, key)
-						.filter((x) => x !== entry);
-					if (conflicts.length < policy.group.maxStack)
-						return DuplicationResolver.DecideAddStructure;
+				const conflicts = borrowedView.filter((x) => x !== entry);
+				if (conflicts.length < policy.group.maxStack)
+					return DuplicationResolver.DecideAddStructure;
 
-					const evictionCount = conflicts.length - policy.group.maxStack + 1;
-					const evictions = new Array<AnyDuplicationEntry>();
-					let remaining = conflicts;
-					let rejected = false;
+				const evictionCount = conflicts.length - policy.group.maxStack + 1;
+				const evictions = new Array<AnyDuplicationEntry>();
+				let remaining = conflicts;
 
-					for (let eviction = 0; eviction < evictionCount; eviction++) {
-						let selectedCandidate = remaining[0]!;
-						let rank = selectedCandidate.score();
-						let order = selectedCandidate.order;
+				for (let eviction = 0; eviction < evictionCount; eviction++) {
+					let selectedCandidate = remaining[0]!;
+					let order = selectedCandidate.order;
+					let rank: number;
 
+					if (selector === "oldest" || selector === "newest") {
 						for (let i = 1; i < remaining.length; i++) {
 							const conflict = remaining[i]!;
 							if (
 								(selector === "oldest" && conflict.order < order) ||
 								(selector === "newest" && conflict.order >= order)
 							) {
-								rank = conflict.score();
 								order = conflict.order;
 								selectedCandidate = conflict;
-							} else {
-								const conflictRank = conflict.score();
-								if (
-									(selector === "lowest" &&
-										(conflictRank < rank ||
-											(conflictRank === rank && conflict.order < order))) ||
-									(selector === "highest" &&
-										(conflictRank > rank ||
-											(conflictRank === rank && conflict.order >= order)))
-								) {
-									rank = conflictRank;
-									order = conflict.order;
-									selectedCandidate = conflict;
-								}
 							}
 						}
-
-						if (!policy.replaceIf(rank, policy.rank(data))) {
-							rejected = true;
-							break;
+						rank = selectedCandidate.score();
+					} else {
+						rank = selectedCandidate.score();
+						for (let i = 1; i < remaining.length; i++) {
+							const conflict = remaining[i]!;
+							const conflictRank = conflict.score();
+							if (
+								(selector === "lowest" &&
+									(conflictRank < rank ||
+										(conflictRank === rank && conflict.order < order))) ||
+								(selector === "highest" &&
+									(conflictRank > rank ||
+										(conflictRank === rank && conflict.order >= order)))
+							) {
+								rank = conflictRank;
+								order = conflict.order;
+								selectedCandidate = conflict;
+							}
 						}
+					}
 
-						evictions.push(selectedCandidate);
+					const incomingRank = this.mutationGate.evaluate("duplication-policy-rank", () =>
+						policy.rank(data)
+					);
+					const replaces = this.mutationGate.evaluate(
+						"duplication-policy-replace-if",
+						() => policy.replaceIf(rank, incomingRank)
+					);
+					if (!replaces) return DuplicationResolver.DecideIgnoreStructure;
+
+					evictions.push(selectedCandidate);
+					if (eviction + 1 < evictionCount)
 						remaining = remaining.filter(
 							(candidate) => candidate !== selectedCandidate
 						);
-					}
-
-					if (this.index.isCurrent(basis)) {
-						if (rejected) return DuplicationResolver.DecideIgnoreStructure;
-						return { action: "add", evict: evictions };
-					}
 				}
+
+				return { action: "add", evict: evictions };
 			}
 		}
 

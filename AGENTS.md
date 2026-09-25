@@ -74,8 +74,8 @@ generic relationships and domain equality hooks (`Object.is` by default).
 - Keep every admitted candidate, including `allow`, queryable in the duplication index. Group-wide
   results use a common candidate interface; exact-type retrieval remains strongly typed.
 - Admission reserves pending candidates early, makes them visible to nested admission, validates
-  decisions after preparation when eviction is possible, commits only after publication, and rolls
-  back all partial state on failure or cancellation. Replacement and reconciliation must remain
+  decisions after preparation when eviction is possible, and commits before public added events.
+  Roll back partial state on failure or cancellation. Replacement and reconciliation must remain
   reentrancy-safe and atomic from the admission model's perspective.
 
 ## Change discipline and verification

@@ -1,3 +1,4 @@
+import type { AgentMutationGate } from "../../core/AgentMutationGate.js";
 import { tallyReport, type TallyReporter } from "../../core/TallyReporter.js";
 import { CallbackSet } from "../../util/CallbackSet.js";
 import type { Disconnect } from "../../util/Disconnect.js";
@@ -40,6 +41,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	>;
 	private ownership: RuntimeOwnership;
 	private binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
+	private bindingCleaned = false;
 	private data: TDescriptorData;
 	private pendingData: TDescriptorData | undefined;
 	private hasPendingData = false;
@@ -50,6 +52,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 	constructor(
 		lease: AdmissionLease,
+		private readonly mutationGate: AgentMutationGate,
 		identity: DescriptorIdentity<TDescriptorData, TSourceData>,
 		private readonly host: DescriptorHost<TDescriptorData, TSourceData>
 	) {
@@ -83,9 +86,17 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 			throw new Error("Cannot install a non-admitting runtime");
 
 		const lease = this.ownership.lease;
-		const binding = this.host.tryBind(this.derivedSources);
+		let binding: DescriptorBinding<TDescriptorData, TSourceData> | undefined;
+		try {
+			binding = this.host.tryBind(this.derivedSources);
+		} catch (error) {
+			// A handler can cancel admission and continue adding derived Sources before throwing.
+			if (lease.isTerminal()) this.cleanupBinding();
+			throw error;
+		}
+		this.binding = binding;
 
-		// The handler may have called descriptor.destroy().
+		// The handler may have cancelled this admission through nested reconciliation or replacement.
 		if (lease.isTerminal()) {
 			this.cleanupBinding();
 			return;
@@ -96,16 +107,15 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 			return;
 		}
 
-		this.binding = binding;
-
 		this.host.installDescriptor(this.instance);
 		this.installed = true;
+		// Reconciliation may have queued updates while the handler was binding.
+		if (this.hasPendingData) this.drainPendingUpdates();
 	}
 
 	announceAdded(): void {
-		if (this.ownership.kind !== "admitting")
-			throw new Error("Cannot announce a non-admitting runtime");
-		if (this.announced || this.ownership.lease.isTerminal()) return;
+		if (this.ownership.kind !== "live") throw new Error("Cannot announce a non-live runtime");
+		if (this.announced) return;
 		this.announced = true; // set before callbacks, they may destroy this source
 		this.host.announceAdded(this.instance);
 	}
@@ -113,7 +123,7 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	markLive(unlink: () => void): void {
 		if (this.ownership.kind !== "admitting")
 			throw new Error("Cannot install a non-admitting runtime");
-		if (!this.installed || !this.announced || this.ownership.lease.isTerminal())
+		if (!this.installed || this.ownership.lease.isTerminal())
 			throw new Error("Cannot complete an incomplete admission");
 		this.ownership = {
 			kind: "live",
@@ -129,12 +139,6 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 
 		this.ownership = { kind: "destroyed" };
 		this.updateCallbacks.clear();
-
-		if (this.announced) {
-			this.destroyCallbacks.emit(this.instance);
-			this.host.announceDestroyed(this.instance);
-		}
-
 		this.destroyCallbacks.clear();
 	}
 
@@ -147,19 +151,33 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		return this.binding.source;
 	}
 
+	/**
+	 * @checksMutationGate
+	 * @providesMutationGate
+	 */
 	set(data: TDescriptorData) {
 		this.assertAlive();
+		this.mutationGate.assertMutationAllowed();
 		const currentData = this.hasPendingData ? this.pendingData! : this.data;
-		if (!this.bindingDirty && this.type.dataEquals(currentData, data)) return;
+		if (
+			!this.bindingDirty &&
+			this.mutationGate.evaluate("descriptor-data-equality", () =>
+				this.type.dataEquals(currentData, data)
+			)
+		)
+			return;
 
 		this.pendingData = data;
+		const hadPendingData = this.hasPendingData;
 		this.hasPendingData = true;
 		if (!this.installed || this.updating) return;
 
-		this.drainPendingUpdates();
+		this.drainPendingUpdates(!hadPendingData);
 	}
 
-	private drainPendingUpdates() {
+	/** @providesMutationGate */
+	private drainPendingUpdates(skipFirstEquality = false) {
+		let skipEquality = skipFirstEquality;
 		try {
 			this.updating = true;
 			do {
@@ -167,21 +185,33 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 				this.pendingData = undefined;
 				this.hasPendingData = false;
 
-				if (!this.bindingDirty && this.type.dataEquals(this.data, nextData)) continue;
+				const skipThisTime = skipEquality;
+				skipEquality = false;
+
+				if (
+					!skipThisTime &&
+					!this.bindingDirty &&
+					this.mutationGate.evaluate("descriptor-data-equality", () =>
+						this.type.dataEquals(this.data, nextData)
+					)
+				)
+					continue;
 
 				this.data = nextData;
 				this.bindingDirty = true;
 				this.binding?.update(this.data);
 				this.bindingDirty = false;
-				if (this.isInactive()) return;
-				if (this.hasPendingData) continue;
-
-				this.updateCallbacks.emit(this.instance);
 
 				if (this.isInactive()) return;
-				if (this.hasPendingData) continue;
 
-				this.host.announceUpdated(this.instance);
+				if (this.announced && this.ownership.kind === "live") {
+					if (this.hasPendingData) continue;
+					this.updateCallbacks.emit(this.instance);
+
+					if (this.isInactive()) return;
+					if (this.hasPendingData) continue;
+					this.host.announceUpdated(this.instance);
+				}
 			} while (!this.isInactive() && this.hasPendingData);
 		} catch (error) {
 			this.pendingData = undefined;
@@ -192,8 +222,10 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		}
 	}
 
+	/** @checksMutationGate */
 	destroy() {
 		if (this.ownership.kind === "destroyed") return;
+		this.mutationGate.assertMutationAllowed();
 
 		if (this.ownership.kind === "admitting") {
 			this.ownership.lease.cancel();
@@ -209,9 +241,9 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		this.cleanupBinding();
 
 		this.updateCallbacks.clear();
-		this.destroyCallbacks.emit(this.instance);
+		if (this.announced) this.destroyCallbacks.emit(this.instance);
 		this.destroyCallbacks.clear();
-		this.host.announceDestroyed(this.instance);
+		if (this.announced) this.host.announceDestroyed(this.instance);
 	}
 
 	onUpdate(callback: (self: Descriptor<TDescriptorData, TSourceData>) => void): Disconnect {
@@ -228,6 +260,10 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 		if (this.ownership.kind === "destroyed") throw new Error("Descriptor has been destroyed");
 	}
 
+	isLive() {
+		return this.ownership.kind === "live";
+	}
+
 	private isInactive() {
 		return (
 			this.ownership.kind === "destroyed" ||
@@ -236,14 +272,18 @@ export class DescriptorRuntime<TDescriptorData, TSourceData>
 	}
 
 	private cleanupBinding() {
-		try {
-			this.binding?.destroy();
-		} catch (error) {
-			tallyReport(this.host.getReporter(), {
-				code: "binding-cleanup-failed",
-				operation: "destroy",
-				error,
-			});
+		const binding = this.binding;
+		if (binding && !this.bindingCleaned) {
+			this.bindingCleaned = true;
+			try {
+				binding.destroy();
+			} catch (error) {
+				tallyReport(this.host.getReporter(), {
+					code: "binding-cleanup-failed",
+					operation: "destroy",
+					error,
+				});
+			}
 		}
 
 		for (let i = 0; i < this.derivedSources.length; i++) {

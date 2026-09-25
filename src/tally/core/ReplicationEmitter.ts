@@ -5,6 +5,7 @@ import type { AnyDescriptor } from "../state/descriptor/Descriptor.js";
 import type { Source } from "../state/source/Source.js";
 import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
+import type { AgentMutationGate } from "./AgentMutationGate.js";
 import { tallyReport, type TallyReporter, type TallyReportOperation } from "./TallyReporter.js";
 
 const replicationOperationByEventKind = {
@@ -18,13 +19,17 @@ type ReplicationCallback = (event: ReplicationEvent) => void;
 export class ReplicationEmitter {
 	private readonly replicationCallbacks: CallbackSet<[ReplicationEvent]>;
 
-	constructor(private readonly reporter: TallyReporter) {
+	constructor(
+		private readonly reporter: TallyReporter,
+		private readonly mutationGate: AgentMutationGate
+	) {
 		this.replicationCallbacks = new CallbackSet(reporter, (event) => ({
 			operation: replicationOperationByEventKind[event.event.kind],
 			event: "replication-emitted",
 		}));
 	}
 
+	/** @providesMutationGate */
 	forwardSourceReplication(source: Source<unknown>, operation: "added" | "updated" | "removed") {
 		if (!source.type.replication || source.provenance.domain !== "local") return;
 		if (this.replicationCallbacks.isEmpty()) return;
@@ -33,7 +38,12 @@ export class ReplicationEmitter {
 			case "added":
 				this.forwardReplication("admit", "source-added", () => ({
 					target: "source",
-					event: { kind: "added", source: serializeSource(source) },
+					event: {
+						kind: "added",
+						source: this.mutationGate.evaluate("source-serialization", () =>
+							serializeSource(source)
+						),
+					},
 				}));
 				break;
 			case "updated":
@@ -42,7 +52,9 @@ export class ReplicationEmitter {
 					event: {
 						kind: "updated",
 						id: source.id,
-						data: source.type.replication!.serialize(source.get()),
+						data: this.mutationGate.evaluate("source-serialization", () =>
+							source.type.replication!.serialize(source.get())
+						),
 					},
 				}));
 				break;
@@ -55,6 +67,7 @@ export class ReplicationEmitter {
 		}
 	}
 
+	/** @providesMutationGate */
 	forwardDescriptorReplication(
 		descriptor: AnyDescriptor,
 		operation: "added" | "updated" | "removed"
@@ -66,7 +79,12 @@ export class ReplicationEmitter {
 			case "added":
 				this.forwardReplication("admit", "descriptor-added", () => ({
 					target: "descriptor",
-					event: { kind: "added", descriptor: serializeDescriptor(descriptor) },
+					event: {
+						kind: "added",
+						descriptor: this.mutationGate.evaluate("descriptor-serialization", () =>
+							serializeDescriptor(descriptor)
+						),
+					},
 				}));
 				break;
 			case "updated":
@@ -75,7 +93,9 @@ export class ReplicationEmitter {
 					event: {
 						kind: "updated",
 						id: descriptor.id,
-						data: descriptor.type.replication!.serialize(descriptor.get()),
+						data: this.mutationGate.evaluate("descriptor-serialization", () =>
+							descriptor.type.replication!.serialize(descriptor.get())
+						),
 					},
 				}));
 				break;

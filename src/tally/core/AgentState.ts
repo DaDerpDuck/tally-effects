@@ -15,12 +15,15 @@ import { SourceType } from "../state/source/SourceType.js";
 import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { IdCounter } from "../util/IdCounter.js";
+import { AgentMutationGate } from "./AgentMutationGate.js";
 import { DescriptorManager, type DescriptorCallback } from "./DescriptorManager.js";
 import { ReplicationEmitter } from "./ReplicationEmitter.js";
 import { SourceManager, type PropertyCallback, type SourceCallback } from "./SourceManager.js";
 import type { TallyReporter } from "./TallyReporter.js";
 
+/** @mutationReentrancy supported */
 type DestroyCallback = () => void;
+/** @mutationReentrancy supported */
 type ReplicationCallback = (event: ReplicationEvent) => void;
 
 export interface AgentStateOptions {
@@ -34,6 +37,7 @@ export interface AgentStateOptions {
  * lifecycle observation for the associated entity.
  */
 export class AgentState<TEntity> {
+	private readonly mutationGate = new AgentMutationGate(this);
 	private readonly duplicationIndex: DuplicationIndex;
 	private readonly duplicationResolver: DuplicationResolver;
 	private readonly admissionCoordinator: AdmissionCoordinator;
@@ -53,20 +57,30 @@ export class AgentState<TEntity> {
 		options: AgentStateOptions
 	) {
 		this.duplicationIndex = new DuplicationIndex();
-		this.duplicationResolver = new DuplicationResolver(this.duplicationIndex);
+		this.duplicationResolver = new DuplicationResolver(
+			this.duplicationIndex,
+			this.mutationGate
+		);
 		this.admissionCoordinator = new AdmissionCoordinator(
 			this.duplicationIndex,
-			this.duplicationResolver
+			this.duplicationResolver,
+			this.mutationGate
 		);
 
 		this.counter = new IdCounter();
 		const { reporter } = options;
 		this.reporter = reporter;
 
-		this.sources = new SourceManager(reporter, this.counter, this.admissionCoordinator);
+		this.sources = new SourceManager(
+			reporter,
+			this.counter,
+			this.mutationGate,
+			this.admissionCoordinator
+		);
 		this.descriptors = new DescriptorManager(
 			reporter,
 			this.counter,
+			this.mutationGate,
 			this.admissionCoordinator,
 			this.sources
 		);
@@ -234,6 +248,8 @@ export class AgentState<TEntity> {
 	 *
 	 * Nested batches are supported. Property resolution and equality failures are
 	 * reported after the batch rather than thrown from the batch callback.
+	 *
+	 * @mutationReentrancy supported
 	 */
 	batch<T>(callback: () => T): T {
 		return this.sources.batch(callback);
@@ -278,7 +294,7 @@ export class AgentState<TEntity> {
 		if (this.destroyed) return () => {};
 
 		if (!this.replicationEmitter) {
-			const emitter = new ReplicationEmitter(this.reporter);
+			const emitter = new ReplicationEmitter(this.reporter, this.mutationGate);
 			this.sources.setReplicationForwarder((source, operation) =>
 				emitter.forwardSourceReplication(source, operation)
 			);
@@ -308,9 +324,12 @@ export class AgentState<TEntity> {
 	 * Disconnects all callbacks and destroys all active Sources and Descriptors
 	 *
 	 * This operation is terminal and future mutations will throw an error.
+	 *
+	 * @checksMutationGate
 	 */
 	destroy() {
 		if (this.destroyed) return;
+		this.mutationGate.assertMutationAllowed();
 		this.destroyed = true;
 		this.destroyCallbacks.emit();
 		this.sources.disconnectAll();

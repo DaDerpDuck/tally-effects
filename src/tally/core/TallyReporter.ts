@@ -56,6 +56,7 @@ export interface TallyReport {
 }
 
 export interface TallyReporter {
+	/** @mutationReentrancy supported */
 	report(report: TallyReport): void;
 }
 

@@ -43,6 +43,7 @@ export interface AnyDescriptorType extends AnyDuplicableType {
 	readonly name: string;
 	readonly duplication: ResolvedDuplicatePolicy<AnyDescriptor, unknown>;
 	readonly replication?: AnyReplicationDefinition | undefined;
+	/** @requiresMutationGate */
 	dataEquals(a: unknown, b: unknown): boolean;
 }
 
@@ -73,6 +74,7 @@ export class DescriptorType<TDescriptorData, TSourceData>
 		registerNamed(registry.descriptors, this, "descriptor");
 	}
 
+	/** @requiresMutationGate */
 	dataEquals(a: TDescriptorData, b: TDescriptorData): boolean {
 		return this.definition.dataEquals?.(a, b) ?? Object.is(a, b);
 	}

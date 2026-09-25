@@ -18,13 +18,49 @@ export type DuplicationGroupDefinition =
 	  };
 
 interface DuplicationGroupOptions<T> {
+	/**
+	 * Returns the ordering score used by this group.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	rank(data: T): number;
+	/**
+	 * Decides whether an incoming score replaces an existing score.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	replaceIf(existingRank: number, incomingRank: number): boolean;
 }
 
 export interface DuplicationGroupMember<T> {
 	readonly group: DuplicationGroup;
+	/**
+	 * Returns the ordering score used by this group.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	rank(data: T): number;
+	/**
+	 * Decides whether an incoming score replaces an existing score.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
+	 */
 	replaceIf(existingRank: number, incomingRank: number): boolean;
 }
 

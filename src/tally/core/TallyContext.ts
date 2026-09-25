@@ -15,8 +15,11 @@ import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import { AgentState, type AgentStateOptions } from "./AgentState.js";
 import type { TallyReporter, TallyReportOperation } from "./TallyReporter.js";
 
+/** @mutationReentrancy supported */
 type ReplicationCallback<TEntity> = (agent: AgentState<TEntity>, event: ReplicationEvent) => void;
+/** @mutationReentrancy supported */
 type SourceCallback<TEntity> = (agent: AgentState<TEntity>, source: Source) => void;
+/** @mutationReentrancy supported */
 type DescriptorCallback<TEntity> = (agent: AgentState<TEntity>, descriptor: AnyDescriptor) => void;
 
 const replicationOperationByEventKind = {

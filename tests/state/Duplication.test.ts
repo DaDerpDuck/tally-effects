@@ -3,7 +3,7 @@ import type { Descriptor, Source } from "../src/index.js";
 import {
 	createDescriptorDuplicationFixture,
 	createSourceDuplicationFixture,
-} from "../fixtures/duplication.js";
+} from "../fixtures/Duplication.js";
 
 describe("source duplication policies", () => {
 	it.each([

@@ -11,6 +11,7 @@ export interface ReplicatedSource {
 	readonly data: ReplicationValue;
 }
 
+/** @requiresMutationGate */
 export function serializeSource(source: Source): ReplicatedSource {
 	if (!source.type.replication)
 		throw new Error("Cannot serialize a source without a ReplicationDefinition");
@@ -19,6 +20,6 @@ export function serializeSource(source: Source): ReplicatedSource {
 		type: source.type.name,
 		priority: source.priority,
 		key: source.key,
-		data: source.type.replication!.serialize(source.get()),
+		data: source.type.replication.serialize(source.get()),
 	};
 }

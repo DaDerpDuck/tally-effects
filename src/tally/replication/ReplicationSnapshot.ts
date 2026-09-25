@@ -1,4 +1,5 @@
 import type { AgentState } from "../core/AgentState.js";
+import { AgentMutationGate } from "../core/AgentMutationGate.js";
 import {
 	type ReplicatedDescriptor,
 	serializeDescriptor,
@@ -14,26 +15,33 @@ export interface ReplicationSnapshot {
 	readonly descriptors: readonly ReplicatedDescriptor[];
 }
 
+/** @providesMutationGate */
 export function createReplicationSnapshot(agent: AgentState<unknown>): ReplicationSnapshot {
+	const mutationGate = AgentMutationGate.forAgent(agent);
 	return {
-		sources: agent
-			.getSources()
-			.values()
-			.filter(
-				(source) =>
-					source.type.replication !== undefined && source.provenance.domain === "local"
-			)
-			.map((source) => serializeSource(source))
-			.toArray(),
-		descriptors: agent
-			.getDescriptors()
-			.values()
-			.filter(
-				(descriptor) =>
-					descriptor.type.replication !== undefined &&
-					descriptor.provenance.domain === "local"
-			)
-			.map((descriptor) => serializeDescriptor(descriptor))
-			.toArray(),
+		sources: mutationGate.evaluate("source-serialization", () =>
+			agent
+				.getSources()
+				.values()
+				.filter(
+					(source) =>
+						source.type.replication !== undefined &&
+						source.provenance.domain === "local"
+				)
+				.map((source) => serializeSource(source))
+				.toArray()
+		),
+		descriptors: mutationGate.evaluate("descriptor-serialization", () =>
+			agent
+				.getDescriptors()
+				.values()
+				.filter(
+					(descriptor) =>
+						descriptor.type.replication !== undefined &&
+						descriptor.provenance.domain === "local"
+				)
+				.map((descriptor) => serializeDescriptor(descriptor))
+				.toArray()
+		),
 	};
 }

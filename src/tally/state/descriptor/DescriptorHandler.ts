@@ -22,7 +22,11 @@ export type AnyDescriptorHandler = (
  * is set using the context's addSource method so that the added Source does not
  * erroneously replicate.
  *
+ * Descriptor handlers and their bindings may synchronously mutate the AgentState
+ * through this context. That mutation reentrancy is supported.
+ *
  * @see {@link DescriptorHandlerContext}
+ * @mutationReentrancy supported
  */
 export type DescriptorHandler<TEntity, TDescriptorData, TSourceData> = (
 	ctx: DescriptorHandlerContext<TEntity, TSourceData>,

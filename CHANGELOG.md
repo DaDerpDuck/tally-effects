@@ -1,5 +1,31 @@
 ## [Unreleased]
 
+### Changed
+
+- **[Breaking]** Replication receiver type resolvers and deserializers now reject mutations to the
+  receiving AgentState while they run. A receiver also rejects a nested receive operation
+  started from a restricted hook.
+- Added a reentrancy glossary and JSDoc boundary tags for restricted hooks, supported
+  callbacks, local mutation gates, and mutation entry checks.
+- Source and Descriptor added events now fire after admission commits and the candidate becomes
+  live. Candidates destroyed before their added event do not emit their own lifecycle
+  notifications.
+- `AgentState` now rejects mutations attempted from Source or Descriptor data equality,
+  Source contribution, Modifier allocation, Property resolution or equality, and duplication
+  rank or replacement hooks, and replication serialization. Required admission and update
+  hooks throw; Property hook failures are reported and leave the last successful cached value
+  intact. Live replication serialization failures are reported and suppress the event; snapshot
+  serialization failures throw. Descriptor handlers, bindings, and lifecycle callbacks remain
+  reentrant.
+
+### Fixed
+
+- Roll back modifiers allocated by a custom contribution even if it throws before returning
+  its handle.
+- Destroy bindings returned after a reentrant Descriptor admission cancellation, and clean
+  derived Sources added after cancellation even if the handler then throws.
+- Apply reconciled Descriptor data to its binding before a pending admission commits.
+
 ## [0.3.0] - 2026-09-18
 
 ### Added

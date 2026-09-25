@@ -11,7 +11,7 @@ type CallbackErrorContext = Omit<TallyReport, "error" | "code"> & {
 };
 
 export class CallbackSet<TArgs extends readonly unknown[]> {
-	private readonly subscriptions = new Set<Subscription<TArgs>>();
+	private subscriptions: Set<Subscription<TArgs>> | undefined = undefined;
 
 	constructor(
 		private readonly reporter: TallyReporter,
@@ -19,21 +19,23 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 	) {}
 
 	isEmpty(): boolean {
-		return this.subscriptions.size === 0;
+		return !this.subscriptions || this.subscriptions.size === 0;
 	}
 
 	add(callback: (...args: TArgs) => void): Disconnect {
+		if (!this.subscriptions) this.subscriptions = new Set();
 		const subscription: Subscription<TArgs> = { callback, connected: true };
 		this.subscriptions.add(subscription);
 		return () => {
 			if (!subscription.connected) return;
 			subscription.connected = false;
-			this.subscriptions.delete(subscription);
+			this.subscriptions?.delete(subscription);
 		};
 	}
 
+	/** @mutationReentrancy supported */
 	emit(...args: TArgs): void {
-		if (this.subscriptions.size === 0) return;
+		if (!this.subscriptions || this.subscriptions.size === 0) return;
 		const subscriptions = [...this.subscriptions];
 		for (const subscription of subscriptions) {
 			if (!subscription.connected) continue;
@@ -50,7 +52,8 @@ export class CallbackSet<TArgs extends readonly unknown[]> {
 	}
 
 	clear() {
-		for (const subscription of this.subscriptions) subscription.connected = false;
-		this.subscriptions.clear();
+		if (this.subscriptions)
+			for (const subscription of this.subscriptions) subscription.connected = false;
+		this.subscriptions = undefined;
 	}
 }

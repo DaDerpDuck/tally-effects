@@ -11,12 +11,24 @@ export interface PropertyDefinition<TValue, TModifier extends Modifier<TValue> =
 	 * Determines whether two resolved values are considered equivalent.
 	 *
 	 * Used to decide whether property-change callbacks should fire.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	valueEquals?(a: TValue, b: TValue): boolean;
 	/**
 	 * Resolves the final Property value from the base value and ordered Modifiers.
 	 *
 	 * If omitted, the Property implementation's default resolution behavior is used.
+	 *
+	 * Mutation reentrancy (adding, updating, or destroying a Source or Descriptor)
+	 * is unsupported.
+	 *
+	 * @mutationReentrancy restricted
+	 * @requiresMutationGate
 	 */
 	resolve?: (base: TValue, modifiers: readonly TModifier[]) => TValue;
 }

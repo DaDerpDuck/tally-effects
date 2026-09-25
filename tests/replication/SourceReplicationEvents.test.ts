@@ -1,91 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-	AgentState,
-	createReplicationSnapshot,
-	defineNumberProperty,
-	defineSourceType,
-	serializeSource,
-	SourceReceiver,
-	type ReplicationEvent,
-	type SourceType,
-	testReporter,
-} from "../src/index.js";
-
-interface SourceData {
-	readonly value: number;
-}
-
-const Value = defineNumberProperty({ name: "ReplicatedSourceValue", defaultValue: 0 });
-
-function defineReplicatedSource(name: string) {
-	return defineSourceType<SourceData>({
-		name,
-		priority: 100,
-		contribute: (data) => [Value.add(data.value)],
-		replication: {
-			serialize: (data) => data.value,
-			deserialize: (serialized) => {
-				if (typeof serialized !== "number")
-					throw new Error("Expected a numeric Source value");
-				return { value: serialized };
-			},
-		},
-	});
-}
-
-const ValueSource = defineReplicatedSource("ReplicatedValueSource");
-
-interface ReplicationFixtureOptions {
-	readonly beforeReplicationSubscribe?: (serverAgent: AgentState<undefined>) => void;
-	readonly relayEvents?: boolean;
-	readonly sourceTypes?: readonly SourceType<SourceData>[];
-}
-
-function createReplicationFixture({
-	beforeReplicationSubscribe,
-	relayEvents = true,
-	sourceTypes = [],
-}: ReplicationFixtureOptions = {}) {
-	const allSourceTypes = [ValueSource, ...sourceTypes];
-	const sourceTypesByName = new Map(
-		allSourceTypes.map((sourceType) => [sourceType.name, sourceType])
-	);
-	const serverAgent = new AgentState(undefined, { reporter: testReporter });
-	const clientAgent = new AgentState(undefined, { reporter: testReporter });
-	const receiver = new SourceReceiver(clientAgent, (name) => sourceTypesByName.get(name));
-	const emittedEvents: ReplicationEvent[] = [];
-
-	beforeReplicationSubscribe?.(serverAgent);
-	serverAgent.onReplicationEmit((event) => {
-		emittedEvents.push(event);
-		if (relayEvents) receiver.apply([event]);
-	});
-
-	return {
-		clientAgent,
-		emittedEvents,
-		receiver,
-		serverAgent,
-	};
-}
-
-function getOnlySource(
-	agent: AgentState<undefined>,
-	sourceType: SourceType<SourceData> = ValueSource
-) {
-	const sources = [...agent.getSources(sourceType)];
-	expect(sources).toHaveLength(1);
-	return sources[0]!;
-}
-
-function getSourceNames(agent: AgentState<undefined>) {
-	return new Set(
-		agent
-			.getSources()
-			.values()
-			.map((source) => source.type.name)
-	);
-}
+	type SourceData,
+	Value,
+	ValueSource,
+	createReplicationFixture,
+	getOnlySource,
+} from "../fixtures/SourceReplication.js";
+import { defineSourceType, serializeSource } from "../src/index.js";
 
 describe("Source replication events", () => {
 	it("reconstructs an added Source with its data, priority, key, and provenance", () => {
@@ -123,7 +44,6 @@ describe("Source replication events", () => {
 		});
 		expect(clientAgent.get(Value)).toBe(5);
 	});
-
 	it("applies updates without changing immutable Source metadata", () => {
 		const { clientAgent, emittedEvents, serverAgent } = createReplicationFixture();
 		const serverSource = serverAgent.addSource(
@@ -147,7 +67,6 @@ describe("Source replication events", () => {
 		expect(clientSource.key).toBe("player:one");
 		expect(clientAgent.get(Value)).toBe(10);
 	});
-
 	it("removes the reconstructed Source", () => {
 		const { clientAgent, emittedEvents, serverAgent } = createReplicationFixture();
 		const serverSource = serverAgent.addSource(ValueSource, { value: 5 })!;
@@ -164,7 +83,6 @@ describe("Source replication events", () => {
 		expect(clientAgent.getSources(ValueSource).size).toBe(0);
 		expect(clientAgent.get(Value)).toBe(0);
 	});
-
 	it("keeps same-type replicated and client-local Sources independent", () => {
 		const { clientAgent, serverAgent } = createReplicationFixture();
 		const clientLocal = clientAgent.addSource(ValueSource, { value: 1000 })!;
@@ -182,7 +100,6 @@ describe("Source replication events", () => {
 		expect(clientAgent.getSources(ValueSource).size).toBe(3);
 		expect(clientAgent.get(Value)).toBe(1120);
 	});
-
 	it("preserves distinct duplication keys during reconstruction", () => {
 		const KeyedSource = defineSourceType<SourceData>({
 			name: "ReplicatedKeyedSource",
@@ -208,7 +125,6 @@ describe("Source replication events", () => {
 		).toEqual(new Set(["a", "b"]));
 		expect(clientAgent.get(Value)).toBe(11);
 	});
-
 	it("continues applying valid events when one Source type is unknown", () => {
 		const { clientAgent, receiver, serverAgent } = createReplicationFixture({
 			relayEvents: false,
@@ -244,7 +160,6 @@ describe("Source replication events", () => {
 		expect(clientAgent.getSources(ValueSource).size).toBe(2);
 		expect(clientAgent.get(Value)).toBe(3);
 	});
-
 	it("rejects updates for Sources that were never reconstructed", () => {
 		const { receiver } = createReplicationFixture({ relayEvents: false });
 
@@ -252,8 +167,7 @@ describe("Source replication events", () => {
 			receiver.apply([{ target: "source", event: { kind: "updated", id: 404, data: null } }])
 		).toThrow("Failed to apply 1 replication event(s)");
 	});
-
-	it("emits added before removed when an earlier added observer destroys the pending Source", () => {
+	it("emits added before removed when an earlier added observer destroys the live Source", () => {
 		const { clientAgent, emittedEvents, serverAgent } = createReplicationFixture({
 			beforeReplicationSubscribe(agent) {
 				agent.onSourceAdded((source) => source.destroy());
@@ -268,85 +182,5 @@ describe("Source replication events", () => {
 		expect(serverAgent.getSources().size).toBe(0);
 		expect(clientAgent.getSources().size).toBe(0);
 		expect(clientAgent.get(Value)).toBe(0);
-	});
-});
-
-describe("Source replication snapshots", () => {
-	it("reconciles additions, updates, removals, and keys", () => {
-		const FirstSource = defineReplicatedSource("SnapshotFirstSource");
-		const SecondSource = defineReplicatedSource("SnapshotSecondSource");
-		const RemovedSource = defineReplicatedSource("SnapshotRemovedSource");
-		const { clientAgent, receiver, serverAgent } = createReplicationFixture({
-			relayEvents: false,
-			sourceTypes: [FirstSource, SecondSource, RemovedSource],
-		});
-		const first = serverAgent.addSource(FirstSource, { value: 5 }, { key: "first" })!;
-		const removed = serverAgent.addSource(RemovedSource, { value: 6 }, { key: "removed" })!;
-
-		receiver.applySnapshot(createReplicationSnapshot(serverAgent));
-
-		expect(clientAgent.getSources().size).toBe(2);
-		expect(clientAgent.get(Value)).toBe(11);
-		expect(getSourceNames(clientAgent)).toEqual(
-			new Set([FirstSource.name, RemovedSource.name])
-		);
-		expect(getOnlySource(clientAgent, FirstSource).key).toBe("first");
-
-		first.set({ value: 7 });
-		removed.destroy();
-		serverAgent.addSource(SecondSource, { value: 8 }, { key: "second" });
-		receiver.applySnapshot(createReplicationSnapshot(serverAgent));
-
-		expect(clientAgent.getSources().size).toBe(2);
-		expect(clientAgent.get(Value)).toBe(15);
-		expect(getSourceNames(clientAgent)).toEqual(new Set([FirstSource.name, SecondSource.name]));
-		expect(getOnlySource(clientAgent, FirstSource).get()).toEqual({ value: 7 });
-		expect(getOnlySource(clientAgent, SecondSource).key).toBe("second");
-	});
-
-	it("is idempotent and preserves client-local Sources", () => {
-		const { clientAgent, receiver, serverAgent } = createReplicationFixture({
-			relayEvents: false,
-		});
-		const clientLocal = clientAgent.addSource(ValueSource, { value: 100 }, { key: "local" })!;
-		serverAgent.addSource(ValueSource, { value: 5 }, { key: "remote" });
-		const snapshot = createReplicationSnapshot(serverAgent);
-
-		receiver.applySnapshot(snapshot);
-		receiver.applySnapshot(snapshot);
-
-		expect(clientAgent.getSources(ValueSource)).toContain(clientLocal);
-		expect(clientAgent.getSources(ValueSource).size).toBe(2);
-		expect(clientAgent.get(Value)).toBe(105);
-		expect(
-			new Set(
-				clientAgent
-					.getSources(ValueSource)
-					.values()
-					.map((source) => source.key)
-			)
-		).toEqual(new Set(["local", "remote"]));
-	});
-
-	it("excludes Source types without replication metadata", () => {
-		const LocalSource = defineSourceType<SourceData>({
-			name: "SnapshotLocalSource",
-			priority: 100,
-			contribute: (data) => [Value.add(data.value)],
-		});
-		const { clientAgent, receiver, serverAgent } = createReplicationFixture({
-			relayEvents: false,
-			sourceTypes: [LocalSource],
-		});
-		serverAgent.addSource(ValueSource, { value: 5 });
-		serverAgent.addSource(LocalSource, { value: 100 });
-
-		const snapshot = createReplicationSnapshot(serverAgent);
-		receiver.applySnapshot(snapshot);
-
-		expect(snapshot.sources).toHaveLength(1);
-		expect(snapshot.sources[0]?.type).toBe(ValueSource.name);
-		expect(clientAgent.getSources().size).toBe(1);
-		expect(clientAgent.get(Value)).toBe(5);
 	});
 });

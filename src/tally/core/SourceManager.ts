@@ -13,6 +13,7 @@ import { CallbackSet } from "../util/CallbackSet.js";
 import type { Disconnect } from "../util/Disconnect.js";
 import { getOrInsertComputed } from "../util/GetOrInsert.js";
 import type { IdCounter } from "../util/IdCounter.js";
+import type { AgentMutationGate } from "./AgentMutationGate.js";
 import { tallyReport, type TallyReporter } from "./TallyReporter.js";
 
 type SourceLifecycleForwarder = (
@@ -20,7 +21,9 @@ type SourceLifecycleForwarder = (
 	operation: "added" | "updated" | "removed"
 ) => void;
 
+/** @mutationReentrancy supported */
 export type PropertyCallback<T = unknown> = (newValue: T, oldValue: T) => void;
+/** @mutationReentrancy supported */
 export type SourceCallback<T = unknown> = (source: Source<T>) => void;
 
 export class SourceManager {
@@ -44,6 +47,7 @@ export class SourceManager {
 	constructor(
 		private readonly reporter: TallyReporter,
 		private readonly counter: IdCounter,
+		private readonly mutationGate: AgentMutationGate,
 		private readonly admission: AdmissionCoordinator
 	) {
 		this.sourceAddedCallbacks = new CallbackSet(reporter, (source) => ({
@@ -63,16 +67,19 @@ export class SourceManager {
 		}));
 	}
 
+	/** @checksMutationGate */
 	addSource<TData>(
 		type: SourceType<TData>,
 		data: TData,
 		options?: SourceOption
 	): Source<TData> | undefined {
+		this.mutationGate.assertMutationAllowed();
 		let receipt: AdmissionReceipt<Source<TData>> | undefined;
 		try {
-			this.batch(
-				() => (receipt = this.admission.admit(this.planSource(type, data, options)))
-			);
+			this.batch(() => {
+				receipt = this.admission.admit(this.planSource(type, data, options));
+				receipt?.commit();
+			});
 		} catch (e) {
 			const errors = [e];
 			try {
@@ -83,7 +90,7 @@ export class SourceManager {
 			if (errors.length === 1) throw errors[0];
 			else throw new AggregateError(errors, "Failed to batch properties", { cause: e });
 		}
-		return this.batch(() => receipt?.publish());
+		return this.batch(() => receipt?.emitAdded());
 	}
 
 	get<T>(property: Property<T>): T {
@@ -102,6 +109,7 @@ export class SourceManager {
 		return (this.sourceMap.get(type) ?? SourceManager.EmptySet) as ReadonlySet<Source>;
 	}
 
+	/** @mutationReentrancy supported */
 	batch<T>(callback: () => T): T {
 		this.mutationDepth++;
 
@@ -154,7 +162,9 @@ export class SourceManager {
 		this.replicationForwarder = undefined;
 	}
 
+	/** @checksMutationGate */
 	destroyAllSources() {
+		this.mutationGate.assertMutationAllowed();
 		this.batch(() => this.sources.forEach((source) => source.destroy()));
 		this.sources.clear();
 		this.modifierRegistry.clear();
@@ -182,6 +192,7 @@ export class SourceManager {
 
 				return new SourceRuntime(
 					lease,
+					this.mutationGate,
 					{ id, type, priority, key, provenance, data },
 					this.sourceHost
 				);
@@ -253,6 +264,7 @@ export class SourceManager {
 		if (this.mutationDepth === 0) this.resolveProperties();
 	}
 
+	/** @providesMutationGate */
 	private resolveProperties() {
 		for (const property of [...this.dirtyProperties]) {
 			this.dirtyProperties.delete(property);
@@ -260,9 +272,8 @@ export class SourceManager {
 			// Failures are reported and retried after a later mutation.
 			let newResolution: unknown;
 			try {
-				newResolution = property.resolve(
-					property.defaultValue,
-					this.modifierRegistry.get(property)
+				newResolution = this.mutationGate.evaluate("property-resolution", () =>
+					property.resolve(property.defaultValue, this.modifierRegistry.get(property))
 				);
 			} catch (error) {
 				this.dirtyProperties.add(property);
@@ -281,7 +292,10 @@ export class SourceManager {
 			const oldResolution = this.get(property);
 			let changed: boolean;
 			try {
-				changed = !property.valueEquals(oldResolution, newResolution);
+				changed = this.mutationGate.evaluate(
+					"property-equality",
+					() => !property.valueEquals(oldResolution, newResolution)
+				);
 			} catch (error) {
 				this.dirtyProperties.add(property);
 				tallyReport(this.reporter, {
@@ -304,35 +318,33 @@ export class SourceManager {
 		}
 	}
 
+	/** @providesMutationGate */
 	private contributeModifiers<TData>(type: SourceType<TData>, data: TData): SourceContribution {
-		return type.contribute(data);
+		return this.mutationGate.evaluate("source-contribution", () => type.contribute(data));
 	}
 
+	/** @providesMutationGate */
 	private applyModifiers(
 		contribution: SourceContribution,
 		priority: number,
 		provenance: StateProvenance
 	): ModifierHandle[] {
-		const handles = new Array<ModifierHandle>(contribution.length);
-
-		try {
-			for (let i = 0; i < contribution.length; i++) {
-				handles[i] = contribution[i]!.applyTo(this.modifierRegistry, {
-					priority,
-					domain:
-						provenance.domain === "local" || provenance.domain === "descriptor-local"
-							? OrderingDomain.local
-							: OrderingDomain.authoritative,
-					sequence: provenance.sequence,
-					modifierIndex: i,
-				});
-			}
-
-			return handles;
-		} catch (e) {
-			this.clearModifierHandles(handles.filter((x) => x !== undefined));
-			throw e;
-		}
+		return this.modifierRegistry.collectAllocations(() => {
+			this.mutationGate.evaluate("modifier-allocation", () => {
+				for (let i = 0; i < contribution.length; i++) {
+					contribution[i]!.applyTo(this.modifierRegistry, {
+						priority,
+						domain:
+							provenance.domain === "local" ||
+							provenance.domain === "descriptor-local"
+								? OrderingDomain.local
+								: OrderingDomain.authoritative,
+						sequence: provenance.sequence,
+						modifierIndex: i,
+					});
+				}
+			});
+		});
 	}
 
 	private clearModifierHandles(handles: ModifierHandle[]) {
