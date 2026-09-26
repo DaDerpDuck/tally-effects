@@ -48,6 +48,7 @@ export class TallyContext<TEntity> {
 		sources: new Map(),
 		properties: new Map(),
 		descriptors: new Map(),
+		timelines: new Map(),
 	};
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
 	private readonly agentConnections = new Map<AgentState<TEntity>, Set<Disconnect>>();

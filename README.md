@@ -250,6 +250,10 @@ const fear = agent
 
 Descriptor builders support `key()` and the advanced `provenance()` setting. Like Source builders, they retain their settings across `.add()` calls, and `.add()` returns `undefined` when descriptor admission does not create an instance (for example, a duplicate policy rejects it or its handler declines to bind it).
 
+### Timelines
+
+`VirtualClock` reads time from a host-provided `now()` function. Call `clock.tick()` after that time advances to run due tasks. A timeline starts at zero, and `setRate(0)` pauses its time and the time of its children. `scheduleAt()` uses timeline time and returns a function that cancels the task.
+
 ### Replication
 
 Each `AgentState` emits replication events, but Tally does not own your networking layer. Developers are expected to implement how to transport the data. `TallyContext` forwards events from the AgentStates it creates as a convenience when one context owns multiple agents.

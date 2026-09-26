@@ -41,7 +41,7 @@ export {
 	type ResolvedPropertyDefinition,
 } from "./tally/property/PropertyDefinition.js";
 
-// State behavior
+// Duplication
 export type {
 	DuplicatePolicy,
 	ResolvedDuplicatePolicy,
@@ -51,7 +51,14 @@ export {
 	DuplicationGroup,
 	type DuplicationGroupDefinition,
 } from "./tally/state/duplication/DuplicationGroup.js";
+
+// Provenance
 export type { ProvenanceDomain, StateProvenance } from "./tally/state/Provenance.js";
+
+// Timeline
+export type { Timeline } from "./tally/state/timeline/Timeline.js";
+export { VirtualClock, type VirtualClockOptions } from "./tally/state/timeline/VirtualClock.js";
+export type { TimeSource } from "./tally/state/timeline/TimeSource.js";
 
 // Source
 export type { Source } from "./tally/state/source/Source.js";
