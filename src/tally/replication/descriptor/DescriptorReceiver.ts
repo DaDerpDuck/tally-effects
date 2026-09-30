@@ -25,6 +25,7 @@ export class DescriptorReceiver implements ReplicationReceiver {
 	 * @requiresMutationGate
 	 */
 	private readonly resolveType: (name: string) => AnyDescriptorType | undefined;
+	private receiving = false;
 
 	constructor(
 		private readonly agent: AgentState<unknown>,
@@ -36,63 +37,89 @@ export class DescriptorReceiver implements ReplicationReceiver {
 
 	/** @checksMutationGate */
 	apply(events: readonly ReplicationEvent[]) {
-		this.mutationGate.assertMutationAllowed();
-		const errors: { event: DescriptorReplicationEvent; error: Error }[] = [];
-
-		this.agent.batch(() => {
-			events
-				.filter((event) => event.target === "descriptor")
-				.map((event) => event.event)
-				.forEach((event) => {
-					try {
-						if (event.kind === "added") this.addDescriptor(event.descriptor);
-						else if (event.kind === "updated")
-							this.updateDescriptor(event.id, event.data);
-						else if (event.kind === "removed") this.removeDescriptor(event.id);
-					} catch (err) {
-						errors.push({
-							event,
-							error: err instanceof Error ? err : new Error(String(err)),
-						});
-					}
-				});
-		});
-
-		if (errors.length > 0)
-			throw new AggregateError(
-				errors.map((e) => e.error),
-				`Failed to apply ${errors.length} replication event(s)`
+		if (this.receiving) {
+			throw new Error(
+				"DescriptorReceiver.apply() cannot run while this receiver is already applying events"
 			);
+		}
+		this.receiving = true;
+
+		try {
+			this.mutationGate.assertMutationAllowed();
+
+			const errors: { event: DescriptorReplicationEvent; error: Error }[] = [];
+
+			this.agent.batch(() => {
+				events
+					.filter((event) => event.target === "descriptor")
+					.map((event) => event.event)
+					.forEach((event) => {
+						try {
+							if (event.kind === "added") this.addDescriptor(event.descriptor);
+							else if (event.kind === "updated")
+								this.updateDescriptor(event.id, event.data);
+							else if (event.kind === "removed") this.removeDescriptor(event.id);
+						} catch (err) {
+							errors.push({
+								event,
+								error: err instanceof Error ? err : new Error(String(err)),
+							});
+						}
+					});
+			});
+
+			if (errors.length > 0)
+				throw new AggregateError(
+					errors.map((e) => e.error),
+					`Failed to apply ${errors.length} replication event(s)`
+				);
+		} finally {
+			this.receiving = false;
+		}
 	}
 
 	/** @checksMutationGate */
 	applySnapshot(snapshot: ReplicationSnapshot) {
-		this.mutationGate.assertMutationAllowed();
-		const errors: { descriptor: ReplicatedDescriptor; error: Error }[] = [];
-
-		this.agent.batch(() => {
-			const markForRemoval = new Set(this.replicatedDescriptors.keys());
-			for (const replicatedDescriptor of snapshot.descriptors) {
-				try {
-					markForRemoval.delete(replicatedDescriptor.id);
-					if (this.replicatedDescriptors.has(replicatedDescriptor.id))
-						this.updateDescriptor(replicatedDescriptor.id, replicatedDescriptor.data);
-					else this.addDescriptor(replicatedDescriptor);
-				} catch (err) {
-					errors.push({
-						descriptor: replicatedDescriptor,
-						error: err instanceof Error ? err : new Error(String(err)),
-					});
-				}
-			}
-			markForRemoval.forEach((id) => this.removeDescriptor(id));
-		});
-
-		if (errors.length > 0)
-			throw new AggregateError(
-				errors.map((e) => e.error),
-				`Failed to apply ${errors.length} replication descriptors(s)`
+		if (this.receiving) {
+			throw new Error(
+				"DescriptorReceiver.applySnapshot() cannot run while this receiver is already applying something"
 			);
+		}
+		this.receiving = true;
+
+		try {
+			this.mutationGate.assertMutationAllowed();
+			const errors: { descriptor: ReplicatedDescriptor; error: Error }[] = [];
+
+			this.agent.batch(() => {
+				const markForRemoval = new Set(this.replicatedDescriptors.keys());
+				for (const replicatedDescriptor of snapshot.descriptors) {
+					try {
+						markForRemoval.delete(replicatedDescriptor.id);
+						if (this.replicatedDescriptors.has(replicatedDescriptor.id))
+							this.updateDescriptor(
+								replicatedDescriptor.id,
+								replicatedDescriptor.data
+							);
+						else this.addDescriptor(replicatedDescriptor);
+					} catch (err) {
+						errors.push({
+							descriptor: replicatedDescriptor,
+							error: err instanceof Error ? err : new Error(String(err)),
+						});
+					}
+				}
+				markForRemoval.forEach((id) => this.removeDescriptor(id));
+			});
+
+			if (errors.length > 0)
+				throw new AggregateError(
+					errors.map((e) => e.error),
+					`Failed to apply ${errors.length} replication descriptors(s)`
+				);
+		} finally {
+			this.receiving = false;
+		}
 	}
 
 	/** @providesMutationGate */

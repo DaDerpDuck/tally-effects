@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+
+- Source and Descriptor receivers now reject nested `apply()` and `applySnapshot()` calls on
+  the same receiver during event or snapshot processing, including calls from lifecycle
+  callbacks. The receiver can accept new calls after a failed receive.
+
 ## [0.3.1] - 2026-09-25
 
 ### Changed

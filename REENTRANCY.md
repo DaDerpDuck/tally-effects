@@ -23,6 +23,9 @@ Source, Descriptor, Property, admission, and replication changes.
   mutation while a restricted hook is active. `AgentMutationGate.evaluate()` opens a
   restricted span and restores the previous span on return or throw. The gate does not
   serialize work or prevent callbacks from running.
+- **Receiver reentrancy** is a nested call to `apply()` or `applySnapshot()` on the same
+  Source or Descriptor receiver. Both methods reject nested calls while either one is
+  active, including calls made from lifecycle callbacks. Rejected receives are not replayed.
 - **Pending admission** is a reserved Source or Descriptor candidate that nested
   admission can see before it becomes live. A candidate may be reconciled, replaced, or
   cancelled at this point. **Commit** makes a completed candidate live; **publication**
