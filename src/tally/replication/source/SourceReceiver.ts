@@ -22,6 +22,7 @@ export class SourceReceiver implements ReplicationReceiver {
 	 * @requiresMutationGate
 	 */
 	private readonly resolveType: (name: string) => AnySourceType | undefined;
+	private receiving = false;
 
 	constructor(
 		private readonly agent: AgentState<unknown>,
@@ -33,62 +34,86 @@ export class SourceReceiver implements ReplicationReceiver {
 
 	/** @checksMutationGate */
 	apply(events: readonly ReplicationEvent[]) {
-		this.mutationGate.assertMutationAllowed();
-		const errors: { event: SourceReplicationEvent; error: Error }[] = [];
-
-		this.agent.batch(() => {
-			events
-				.filter((event) => event.target === "source")
-				.map((event) => event.event)
-				.forEach((event) => {
-					try {
-						if (event.kind === "added") this.addSource(event.source);
-						else if (event.kind === "updated") this.updateSource(event.id, event.data);
-						else if (event.kind === "removed") this.removeSource(event.id);
-					} catch (err) {
-						errors.push({
-							event,
-							error: err instanceof Error ? err : new Error(String(err)),
-						});
-					}
-				});
-		});
-
-		if (errors.length > 0)
-			throw new AggregateError(
-				errors.map((e) => e.error),
-				`Failed to apply ${errors.length} replication event(s)`
+		if (this.receiving) {
+			throw new Error(
+				"SourceReceiver.apply() cannot run while this receiver is already applying something"
 			);
+		}
+		this.receiving = true;
+
+		try {
+			this.mutationGate.assertMutationAllowed();
+
+			const errors: { event: SourceReplicationEvent; error: Error }[] = [];
+
+			this.agent.batch(() => {
+				events
+					.filter((event) => event.target === "source")
+					.map((event) => event.event)
+					.forEach((event) => {
+						try {
+							if (event.kind === "added") this.addSource(event.source);
+							else if (event.kind === "updated")
+								this.updateSource(event.id, event.data);
+							else if (event.kind === "removed") this.removeSource(event.id);
+						} catch (err) {
+							errors.push({
+								event,
+								error: err instanceof Error ? err : new Error(String(err)),
+							});
+						}
+					});
+			});
+
+			if (errors.length > 0)
+				throw new AggregateError(
+					errors.map((e) => e.error),
+					`Failed to apply ${errors.length} replication event(s)`
+				);
+		} finally {
+			this.receiving = false;
+		}
 	}
 
 	/** @checksMutationGate */
 	applySnapshot(snapshot: ReplicationSnapshot) {
-		this.mutationGate.assertMutationAllowed();
-		const errors: { source: ReplicatedSource; error: Error }[] = [];
-
-		this.agent.batch(() => {
-			const markForRemoval = new Set(this.replicatedSources.keys());
-			for (const replicatedSource of snapshot.sources) {
-				try {
-					markForRemoval.delete(replicatedSource.id);
-					if (this.replicatedSources.has(replicatedSource.id))
-						this.updateSource(replicatedSource.id, replicatedSource.data);
-					else this.addSource(replicatedSource);
-				} catch (err) {
-					errors.push({
-						source: replicatedSource,
-						error: err instanceof Error ? err : new Error(String(err)),
-					});
-				}
-			}
-			markForRemoval.forEach((id) => this.removeSource(id));
-		});
-
-		if (errors.length > 0)
-			throw new AggregateError(
-				errors.map((e) => e.error),
-				`Failed to apply ${errors.length} replication source(s)`
+		if (this.receiving) {
+			throw new Error(
+				"SourceReceiver.applySnapshot() cannot run while this receiver is already applying something"
 			);
+		}
+		this.receiving = true;
+
+		try {
+			this.mutationGate.assertMutationAllowed();
+			const errors: { source: ReplicatedSource; error: Error }[] = [];
+
+			this.agent.batch(() => {
+				const markForRemoval = new Set(this.replicatedSources.keys());
+				for (const replicatedSource of snapshot.sources) {
+					try {
+						markForRemoval.delete(replicatedSource.id);
+						if (this.replicatedSources.has(replicatedSource.id))
+							this.updateSource(replicatedSource.id, replicatedSource.data);
+						else this.addSource(replicatedSource);
+					} catch (err) {
+						errors.push({
+							source: replicatedSource,
+							error: err instanceof Error ? err : new Error(String(err)),
+						});
+					}
+				}
+				markForRemoval.forEach((id) => this.removeSource(id));
+			});
+
+			if (errors.length > 0)
+				throw new AggregateError(
+					errors.map((e) => e.error),
+					`Failed to apply ${errors.length} replication source(s)`
+				);
+		} finally {
+			this.receiving = false;
+		}
 	}
 
 	/** @providesMutationGate */
