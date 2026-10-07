@@ -50,6 +50,9 @@ export class TallyContext<TEntity> {
 		descriptors: new Map(),
 		timelines: new Map(),
 	};
+	public readonly sources: ReadonlyMap<string, AnySourceType> = this.registry.sources;
+	public readonly properties: ReadonlyMap<string, AnyProperty> = this.registry.properties;
+	public readonly descriptors: ReadonlyMap<string, AnyDescriptorType> = this.registry.descriptors;
 	private readonly descriptorHandlers = new Map<AnyDescriptorType, AnyDescriptorHandler>();
 	private readonly agentConnections = new Map<AgentState<TEntity>, Set<Disconnect>>();
 
@@ -118,18 +121,6 @@ export class TallyContext<TEntity> {
 			operation: replicationOperationByEventKind[event.event.kind],
 			event: "replication-emitted",
 		}));
-	}
-
-	get sources(): ReadonlyMap<string, AnySourceType> {
-		return this.registry.sources;
-	}
-
-	get properties(): ReadonlyMap<string, AnyProperty> {
-		return this.registry.properties;
-	}
-
-	get descriptors(): ReadonlyMap<string, AnyDescriptorType> {
-		return this.registry.descriptors;
 	}
 
 	/**

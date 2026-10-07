@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+## [0.3.2] - 2026-10-07
+
+### Changed
+
+- `TallyContext.sources`, `TallyContext.properties`, and `TallyContext.descriptors` are now
+  readonly instance fields instead of prototype accessors.
+
+### Fixed
+
+- Source and Descriptor receivers now reject nested `apply()` and `applySnapshot()` calls on
+  the same receiver during event or snapshot processing, including calls from lifecycle
+  callbacks. The receiver can accept new calls after a failed receive.
+
 ## [0.3.1] - 2026-09-25
 
 ### Changed

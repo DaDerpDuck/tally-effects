@@ -23,6 +23,7 @@
   "files": [
     "dist",
     "README.md",
+    "docs",
     "REENTRANCY.md",
     "LICENSE.txt"
   ],

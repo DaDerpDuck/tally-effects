@@ -1,32 +1,33 @@
 # Tally Effects
 
-A composable, source-driven status effect framework for deriving and replicating gameplay state.
+Keep gameplay values in sync with the things affecting them.
 
-Tally models gameplay state as Properties modified by Sources. Rather than treating status effects as first-class objects, effects emerge from combinations of Sources, Modifiers, Properties, and Descriptors.
+Define a Property for a value such as movement speed, then define SourceTypes for sprinting, equipment, buffs, or debuffs. Each active Source contributes Modifiers; Tally resolves the value as Sources are added, updated, and destroyed. Effects emerge from these reusable pieces, so several mechanics can affect the same value.
 
-## Features
+## Why Tally?
 
-- composable property modifiers
-- configurable source priorities
-- deterministic ordering
-- duplicate policies
-- descriptors for derived/runtime-maintained state
-- transport-agnostic replication
-- snapshots and delta replication
-- strongly typed TypeScript API
+- **Composable state:** Sources contribute to Properties without each gameplay system maintaining its own final total.
+- **Predictable results:** Priorities, deterministic ordering, and duplicate policies define how overlapping Sources behave.
+- **Multiplayer support:** Opt-in replication provides events and snapshots while your application chooses the transport. Descriptors can turn portable state into Sources maintained by each runtime.
+- **Fits your game:** The core is independent of a particular engine or host, with a strongly typed TypeScript API.
 
-## Installation
+## Install
 
-Tally is available as an npm package.
+```sh
+npm install tally-effects
+```
 
-`npm install tally-effects`
+## Quick start
 
-## Quick Start
-
-This example defines a `MovementSpeed` Property with a default value of 16. While a `Sprinting` source is active, it contributes a multiplier to that Property. Destroying the Source removes its contribution and restores the resolved value to 16.
+This Source makes a player's movement speed 50% faster while sprinting. Destroying it restores the Property's default value.
 
 ```ts
-import { defineNumberProperty, defineSourceType, AgentState, type TallyReporter } from "tally-effects";
+import {
+    AgentState,
+    defineNumberProperty,
+    defineSourceType,
+    type TallyReporter,
+} from "tally-effects";
 
 const MovementSpeed = defineNumberProperty({
     name: "MovementSpeed",
@@ -36,248 +37,123 @@ const MovementSpeed = defineNumberProperty({
 const Sprinting = defineSourceType<number>({
     name: "Sprinting",
     priority: 100,
-    contribute: (multiplier) => [ MovementSpeed.multiply(multiplier) ],
+    contribute: (multiplier) => [MovementSpeed.multiply(multiplier)],
 });
 
 const reporter: TallyReporter = {
     report(report) {
-        // Forward this to the application's diagnostic system.
-        // report.code, report.operation, report.event, and report.error
-        // provide stable machine-readable context.
+        console.error(report.error);
     },
 };
 
+const player = { id: "player-1" };
 const agent = new AgentState(player, { reporter });
 
-const sprint = agent.addSource(Sprinting, 1.5);
+agent.get(MovementSpeed); // 16
 
+const sprint = agent.addSource(Sprinting, 1.5);
 agent.get(MovementSpeed); // 24
 
 sprint?.destroy();
-
 agent.get(MovementSpeed); // 16
 ```
 
-The basic flow is:
+## Core mechanics
 
-```
-Source
-  ↓ contributes
-Modifier
-  ↓ modifies
-Property
-  ↓ resolves to
-final value
-```
+### Properties and Sources
 
-### Error Reporting
+A Property owns its default value and how Modifiers combine. A SourceType turns data into Modifiers; each Source is an active instance attached to an `AgentState`. Updating or destroying a Source changes the resolved value, so equipment, abilities, and status effects can contribute to the same Property without maintaining a shared total themselves.
 
-`AgentState` and `TallyContext` require a host-provided `TallyReporter`:
+### Priorities and deterministic order
+
+Lower-priority Sources resolve first. For example, boots that add 4 speed at priority 50 apply before sprinting's multiplier at priority 100:
 
 ```ts
-import { AgentState, TallyContext } from "tally-effects";
-
-const agent = new AgentState(player, { reporter });
-```
-
-Observation callbacks run synchronously. If one fails, Tally reports it and continues with the remaining callbacks. Recoverable cleanup and property-resolution failures are reported too.
-
-`TallyReporter.report()` receives one structured `TallyReport` object. Its stable fields are `error`, `code`, and `operation`; reports can also identify a public lifecycle `event` and a public `subject`. The reporter owns human-readable formatting, allowing hosts to share the same contract without sharing a logging implementation.
-
-### Properties
-
-Properties define values that Tally resolves. A Property provides a default value and defines how its Modifiers combine.
-
-```ts
-const HealthRegen = defineNumberProperty({
-    name: "HealthRegen",
-    defaultValue: 1,
-});
-```
-
-### Sources
-
-A Source is a runtime cause of state attached to an AgentState. Each Source is an instance of a SourceType, which defines the Modifiers that Source contributes.
-
-A SourceType defines how Source data becomes modifiers:
-
-```ts
-const Poisoned = defineSourceType<PoisonData>({
-    name: "Poisoned",
-    priority: 100,
-    contribute: (data) => [
-        HealthRegen.multiply(data.regenMultiplier),
-    ],
-});
-```
-
-#### Priorities and keys
-
-`AgentState.makeSource()` creates a fluent, agent-scoped builder for one `SourceType`. Use it when setting a Source's priority or duplication key:
-
-```ts
-const poison = agent
-    .makeSource(Poisoned)
-    .priority(200) // overrides Poisoned.priority for this builder
-    .key("poison:spider-7")
-    .add({ regenMultiplier: 0.5 });
-```
-
-`key()` selects the duplication bucket. `provenance()` is an advanced ordering and replication setting; leave it unset for ordinary use, and let replication receivers set it for received state.
-
-Builders are mutable and reusable: their configured settings remain in effect for every later `.add()` call. Create a new builder, or change its settings, when the next Source needs different values. `.add()` returns `undefined` when a duplicate policy rejects or reconciles the new Source.
-
-### Priorities and Deterministic Ordering
-
-Modifiers are resolved deterministically using a lexicographic ordering key: Source priority, ordering domain (authoritative before local), provenance sequence, and the Modifier's contribution index within its Source. The result does not depend on collection iteration order or the local order in which replicated state arrived.
-
-### Duplicate Policies
-
-A duplicate policy determines what happens when a Source or Descriptor is added in a conflicting duplication bucket. The policies are listed below:
-
-| Policy | Behavior |
-| ------ | -------- |
-| `allow` | create another instance |
-| `ignore` | reject the new instance |
-| `replace` | destroy the old instance and create the new one |
-| `reconcile` | let application code merge incoming data into the existing instance |
-
-By default, a type is its own duplication domain and all of its instances use the unkeyed bucket. Use a builder's `key()` method to partition that domain. Different keys do not conflict, while `undefined` remains the unkeyed bucket:
-
-```ts
-const first = agent
-    .makeSource(Shield)
-    .key("left-hand")
-    .add({ amount: 10 });
-
-const second = agent
-    .makeSource(Shield)
-    .key("right-hand")
-    .add({ amount: 20 });
-```
-
-Use a `DuplicationGroup` when different SourceTypes or DescriptorTypes should share a domain. A group can set a stack limit and, for replacement, choose the `oldest`, `newest`, `lowest`, or `highest` candidate. Each member supplies its own rank function, so heterogeneous data remains type-safe:
-
-```ts
-const damageOverTime = defineDuplicationGroup({
-    policy: "replace",
-    maxStack: 3,
-    selector: "lowest",
+const Boots = defineSourceType<undefined>({
+    name: "Boots",
+    priority: 50,
+    contribute: () => [MovementSpeed.add(4)],
 });
 
-const Burning = defineSourceType<number>({
-    name: "Burning",
-    priority: 100,
-    duplication: damageOverTime.member({ rank: (damage) => damage }),
-    contribute: (damage) => [ HealthRegen.add(-damage) ],
+agent.addSource(Boots);
+agent.addSource(Sprinting, 1.5);
+agent.get(MovementSpeed); // (16 + 4) × 1.5 = 30
+```
+
+At equal priority, Tally uses stable provenance ordering, so replicated state resolves consistently even when events arrive in a different order. Updating a Source keeps its place.
+
+### Duplicate policies and keys
+
+Choose what happens when another Source or Descriptor enters the same duplication bucket:
+
+| Policy | Result |
+| --- | --- |
+| `allow` (default) | Keep both instances |
+| `ignore` | Keep the existing instance |
+| `replace` | Replace the existing instance |
+| `reconcile` | Merge incoming data into the existing instance |
+
+Keys give one type separate buckets. This lets two auras coexist while a new version of one aura replaces only its own instance:
+
+```ts
+const SpeedAura = defineSourceType<number>({
+    name: "SpeedAura",
+    priority: 75,
+    duplication: { policy: "replace" },
+    contribute: (bonus) => [MovementSpeed.add(bonus)],
 });
+
+agent.makeSource(SpeedAura).key("ally:one").add(2);
+agent.makeSource(SpeedAura).key("ally:two").add(3);
+agent.makeSource(SpeedAura).key("ally:one").add(4); // replaces the first aura
 ```
 
-Ignored and reconciled additions return `undefined` because they do not create a new instance. Source and Descriptor added events fire after the new instance becomes active.
+Duplication groups let different types share a domain, stack limit, and replacement rule.
 
-### Descriptors
+### Descriptors for runtime-dependent effects
 
-Some Sources cannot be represented by replicated data alone. A proximity-based Source, for example, may depend on an object that exists differently on the server and client.
+A Source is enough when its own data can determine its Modifiers. Use a Descriptor when the data records *what should be happening*, but producing the Source also requires local world state or services. For example, `{ targetId: "wolf" }` can express that an agent is affected by a nearby wolf without trying to serialize the wolf object, a spatial query, or an event subscription.
 
-Descriptors are optional instances that separate what state should exist from how that state is produced in the current runtime. A Descriptor contains the portable data, while a locally registered DescriptorHandler uses that data to create and maintain its Source.
+`defineDescriptorType()` pairs that portable data with the SourceType it will produce. Before adding the Descriptor, register a handler on the `AgentState`, or on the `TallyContext` that creates it. The handler translates Descriptor data into local behavior and returns a binding:
 
-```
-Descriptor
-    ↓ runtime handler
-DescriptorBinding
-    ↓ adds
-Source
-    ↓ contributes
-Modifiers
+```text
+Descriptor data -> local handler and binding -> derived Source -> Modifiers
 ```
 
-For example, a `ProximityFear` Descriptor can identify what the player should be afraid of without containing server- or client-specific logic for measuring that object's proximity.
+Create derived Sources through `ctx.addSource()`. This ties their provenance and lifetime to the Descriptor, prevents them from replicating as independent state, and ensures they are cleaned up with it. When `descriptor.set()` changes the portable data, Tally calls the binding's `update()` method. When the Descriptor is destroyed, Tally calls `destroy()` so the binding can disconnect local listeners, then removes the Sources created through its context.
+
+The same Descriptor name and data can have different handlers: a server might calculate and apply a movement penalty, while a client might maintain a presentation-oriented Source from its own local state. Descriptors also work entirely within one runtime; compatible names and data contracts matter only when you choose to replicate them. See the [descriptor guide](docs/guide.md#descriptors) for a complete type, handler, update, and cleanup example.
+
+### Replication on your transport
+
+Replication is opt-in for each SourceType or DescriptorType through `serialize` and `deserialize`. An authoritative `AgentState` emits live events for additions, updates, and removals; `createReplicationSnapshot(agent)` captures its current state for a joining client. Your application sends these messages to the matching agent through its own transport. Each receiver uses local type definitions with compatible names and data formats; a replicated Descriptor runs the receiving runtime's own handler.
+
+Given a configured receiving `agent` and a `TallyContext` named `tally`, the receiver side is small:
 
 ```ts
-const ProximityFear = defineDescriptorType<
-    ProximityData,
-    FearData
->({
-    name: "ProximityFear",
-    source: Fear, // source type
-    replication: {
-        serialize: ...,
-        deserialize: ...,
-    },
-});
+import {
+    DescriptorReceiver,
+    SourceReceiver,
+    type ReplicationEvent,
+    type ReplicationSnapshot,
+} from "tally-effects";
+
+const sources = new SourceReceiver(agent, (name) => tally.sources.get(name));
+const descriptors = new DescriptorReceiver(agent, (name) => tally.descriptors.get(name));
+
+function receiveEvents(events: readonly ReplicationEvent[]) {
+    sources.apply(events);
+    descriptors.apply(events);
+}
+
+function receiveSnapshot(snapshot: ReplicationSnapshot) {
+    sources.applySnapshot(snapshot);
+    descriptors.applySnapshot(snapshot);
+}
 ```
 
-Register a handler on each `AgentState` that needs to create the Descriptor. A `TallyContext` can also register handlers once and apply them to the AgentStates it creates.
+The receivers reconcile authoritative IDs and filter events for their own kind. Received state does not echo back, and descriptor-derived Sources are not emitted separately. See the [replication guide](docs/guide.md#replicating-a-descriptor-with-different-local-handlers) for the shared definitions, server and client handlers, and transport wiring.
 
-```ts
-agent.registerDescriptorHandler(
-    ProximityFear,
-    (ctx, data) => {
-        const source = ctx.addSource(
-            calculateFear(data)
-        );
+The [usage guide](docs/guide.md) covers builders, duplication groups, descriptor handlers, replication setup, and error reporting in detail.
 
-        if (!source)
-            return;
-
-        return {
-            source,
-            update(next) {
-                source.set(
-                    calculateFear(next)
-                );
-            },
-            destroy() {
-                source.destroy();
-            },
-        };
-    }
-);
-```
-
-Register descriptor handlers before adding their Descriptor. When using a `TallyContext`, register them before creating AgentStates so each agent receives the expected handler.
-
-#### Descriptor keys
-
-`AgentState.makeDescriptor()` creates a builder for one `DescriptorType`. Use it when setting a Descriptor's duplication key:
-
-```ts
-const fear = agent
-    .makeDescriptor(ProximityFear)
-    .key("fear:nearby-wolf")
-    .add(proximityData);
-```
-
-Descriptor builders support `key()` and the advanced `provenance()` setting. Like Source builders, they retain their settings across `.add()` calls, and `.add()` returns `undefined` when descriptor admission does not create an instance (for example, a duplicate policy rejects it or its handler declines to bind it).
-
-### Timelines
-
-`VirtualClock` reads time from a host-provided `now()` function. Call `clock.tick()` after that time advances to run due tasks. A timeline starts at zero, and `setRate(0)` pauses its time and the time of its children. `scheduleAt()` uses timeline time and returns a function that cancels the task.
-
-### Replication
-
-Each `AgentState` emits replication events, but Tally does not own your networking layer. Developers are expected to implement how to transport the data. `TallyContext` forwards events from the AgentStates it creates as a convenience when one context owns multiple agents.
-
-Tally does offer receivers for accepting replication events.
-
-This keeps actor-local state independent: an actor can own one `AgentState`, subscribe with `agent.onReplicationEmit()`, and send that event across its actor boundary. The receiving actor recreates the matching type definitions and handlers locally, then applies the event through its `SourceReceiver` or `DescriptorReceiver`.
-
-Replication serializers, deserializers, and receiver type lookups should only convert or resolve data. They must not mutate the AgentState they operate on.
-
-The replication flow looks like:
-
-```
-Authoritative AgentState
-      ↓
-agent.onReplicationEmit()
-      ↓
-your transport
-      ↓
-SourceReceiver / DescriptorReceiver
-      ↓
-Receiving AgentState
-```
-
-## Status
-
-Tally is currently pre-1.0. Public APIs may evolve as the library gains real-world usage.
+Tally is pre-1.0; public APIs may evolve as the library gains real-world usage.
