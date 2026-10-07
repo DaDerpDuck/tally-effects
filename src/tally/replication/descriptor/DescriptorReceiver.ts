@@ -39,7 +39,7 @@ export class DescriptorReceiver implements ReplicationReceiver {
 	apply(events: readonly ReplicationEvent[]) {
 		if (this.receiving) {
 			throw new Error(
-				"DescriptorReceiver.apply() cannot run while this receiver is already applying events"
+				"DescriptorReceiver.apply() cannot run while this receiver is already applying something"
 			);
 		}
 		this.receiving = true;
